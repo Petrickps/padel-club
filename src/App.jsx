@@ -84,19 +84,18 @@ function melhorDuplas(g4) {
 // ─── MENSAGENS ───────────────────────────────────────────────────────────────
 function buildMsgConvite(j, slot, confirmados, remetente="Gabi da Profit") {
   const ds = diaSemana(slot.data);
-  const vagas = 4 - confirmados.length;
   const nome = j.nome.split(" ")[0];
+
   let linhaConf = "";
-  if (confirmados.length===0) {
-    linhaConf = `Você seria o primeiro a confirmar! 🙌`;
-  } else if (confirmados.length===1) {
-    linhaConf = `*${confirmados[0].nome.split(" ")[0]}* já confirmou.`;
-  } else {
-    const nomes = confirmados.map(c=>c.nome.split(" ")[0]);
-    const ultimo = nomes.pop();
-    linhaConf = `*${nomes.join(", ")}* e *${ultimo}* já confirmaram.`;
+  if (confirmados.length===1) {
+    linhaConf = `\n*${confirmados[0].nome.split(" ")[0]}* já confirmou.`;
+  } else if (confirmados.length>=2) {
+    const nomes=confirmados.map(c=>c.nome.split(" ")[0]);
+    const ultimo=nomes.pop();
+    linhaConf = `\n*${nomes.join(", ")}* e *${ultimo}* já confirmaram.`;
   }
-  return `Oi, ${nome}! ${remetente} aqui, tudo bem?! 🎾\n\nTenho jogo para você:\n\n📅 *${ds}-feira, ${fmtData(slot.data)}*\n🕐 *${slot.hora}*\n🏟️ *${slot.quadra}*\n\n${linhaConf}\n${vagas===1?`Falta *1 vaga* para fechar!`:`Faltam *${vagas} vagas* para fechar.`}\n\nVocê topa? Responda *SIM* ou *NÃO* 🎾\n\n_Aguardo em até 15 minutos_ ⏳`;
+
+  return `Oi, ${nome}! ${remetente} aqui, tudo bem?! 🎾\n\nTenho um jogo para você:\n\n📅 *${ds}-feira, ${fmtData(slot.data)}*\n🕐 *${slot.hora}*\n🏟️ *${slot.quadra}*${linhaConf}\n\nVocê topa? Responda *SIM* ou *NÃO* 🎾`;
 }
 function buildMsgFechado(d1, d2, slot) {
   const ds = diaSemana(slot.data);
