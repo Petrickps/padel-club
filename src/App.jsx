@@ -82,21 +82,21 @@ function melhorDuplas(g4) {
 }
 
 // ─── MENSAGENS ───────────────────────────────────────────────────────────────
-function buildMsgConvite(j, slot, confirmados) {
+function buildMsgConvite(j, slot, confirmados, remetente="Gabi da Profit") {
   const ds = diaSemana(slot.data);
   const vagas = 4 - confirmados.length;
   const nome = j.nome.split(" ")[0];
   let linhaConf = "";
   if (confirmados.length===0) {
-    linhaConf = `Ainda não temos confirmações — você seria o primeiro! 🙌`;
+    linhaConf = `Você seria o primeiro a confirmar! 🙌`;
   } else if (confirmados.length===1) {
-    linhaConf = `*${confirmados[0].nome.split(" ")[0]}* já confirmou presença.`;
+    linhaConf = `*${confirmados[0].nome.split(" ")[0]}* já confirmou.`;
   } else {
     const nomes = confirmados.map(c=>c.nome.split(" ")[0]);
     const ultimo = nomes.pop();
     linhaConf = `*${nomes.join(", ")}* e *${ultimo}* já confirmaram.`;
   }
-  return `Olá, ${nome}! 👋\n\nTenho uma vaga de padel para você:\n\n📅 *${ds}-feira, ${fmtData(slot.data)}*\n🕐 *${slot.hora}*\n🏟️ *${slot.quadra}*\n\n${linhaConf}\n${vagas===1?`Falta *1 vaga* para fechar!`:`Faltam *${vagas} vagas* para fechar.`}\n\nVocê topa? Responda *SIM* ou *NÃO* 🎾\n\n_Aguardo em até 15 minutos_ ⏳`;
+  return `Oi, ${nome}! ${remetente} aqui, tudo bem?! 🎾\n\nTenho jogo para você:\n\n📅 *${ds}-feira, ${fmtData(slot.data)}*\n🕐 *${slot.hora}*\n🏟️ *${slot.quadra}*\n\n${linhaConf}\n${vagas===1?`Falta *1 vaga* para fechar!`:`Faltam *${vagas} vagas* para fechar.`}\n\nVocê topa? Responda *SIM* ou *NÃO* 🎾\n\n_Aguardo em até 15 minutos_ ⏳`;
 }
 function buildMsgFechado(d1, d2, slot) {
   const ds = diaSemana(slot.data);
@@ -304,12 +304,12 @@ function MsgModal({titulo,texto,tel,onClose,fireToast}) {
 }
 
 // ─── CAND ROW ─────────────────────────────────────────────────────────────────
-function CandRow({j,onSim,onNao,onMsg,slot,confirmados=[]}) {
+function CandRow({j,onSim,onNao,onMsg,slot,confirmados=[],remetente=""}) {
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
       borderRadius:10,background:"#fff",
       border:`1.5px solid ${onSim?C.yellowBg:C.border}`,
-      marginBottom:6,flexWrap:"wrap",gap:8}}>
+      marginBottom:6,flexWrap:"wrap",transition:"border .2s"}}>
       <Avatar nome={j.nome} size={32} g={j.g} highlight={j.status==="confirmado"}/>
       <div style={{flex:1,minWidth:100}}>
         <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,flexWrap:"wrap"}}>
@@ -326,7 +326,7 @@ function CandRow({j,onSim,onNao,onMsg,slot,confirmados=[]}) {
       <div style={{display:"flex",gap:5,flexShrink:0}}>
         <button onClick={()=>onMsg({
           titulo:`Convite — ${j.nome.split(" ")[0]}`,
-          texto:buildMsgConvite(j,slot,confirmados),
+          texto:buildMsgConvite(j,slot,confirmados,remetente),
           tel:j.tel
         })} style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,
           padding:"5px 9px",cursor:"pointer",fontSize:12,color:C.textSub,fontFamily:"inherit",fontWeight:600}}>📋</button>
@@ -344,7 +344,7 @@ function CandRow({j,onSim,onNao,onMsg,slot,confirmados=[]}) {
 }
 
 // ─── CASCATA VIEW ─────────────────────────────────────────────────────────────
-function CascataView({jogo,onResponder,onNovoJogo,onCancelar,onMsg}) {
+function CascataView({jogo,onResponder,onNovoJogo,onCancelar,onMsg,remetente=""}) {
   const conf  = jogo.fila.filter(j=>j.status==="confirmado");
   const pend  = jogo.fila.filter(j=>j.status==="pendente");
   const recus = jogo.fila.filter(j=>j.status==="recusou"||j.status==="expirado");
@@ -463,20 +463,20 @@ function CascataView({jogo,onResponder,onNovoJogo,onCancelar,onMsg}) {
       )}
 
       {conf.length>0 &&<SLabel label={`✅ Confirmados (${conf.length}/4)`} color={C.green}/>}
-      {conf.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf}/>)}
+      {conf.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}
       {pend.length>0 &&<SLabel label={`⏳ Aguardando — Onda ${jogo.ondaAtual}`} color={C.yellow}/>}
-      {pend.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf}
+      {pend.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
         onSim={!fechado?()=>onResponder(j.id,"sim"):()=>onResponder(j.id,"sim")}
         onNao={!fechado?()=>onResponder(j.id,"nao"):null}/>)}
       {recus.length>0&&<SLabel label={`❌ Recusaram / Sem resposta (${recus.length})`} color={C.textMut}/>}
-      {recus.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf}/>)}
+      {recus.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}
       {fila.length>0 &&<SLabel label={`🔜 Na fila (${fila.length})`} color={C.textMut}/>}
-      {fila.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf}/>)}
+      {fila.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}
       {jogo.fila.filter(j=>j.status==="excluido_cat").length>0&&(
         <>
           <SLabel label="🚫 Excluídos — categoria diferente da definida" color={C.textMut}/>
           {jogo.fila.filter(j=>j.status==="excluido_cat").map(j=>(
-            <CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf}/>
+            <CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>
           ))}
         </>
       )}
@@ -484,7 +484,7 @@ function CascataView({jogo,onResponder,onNovoJogo,onCancelar,onMsg}) {
         <>
           <SLabel label="🙋 Interessados após fechamento" color="#7C3AED"/>
           {jogo.fila.filter(j=>j.status==="interessado").map(j=>(
-            <CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf}/>
+            <CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>
           ))}
         </>
       )}
@@ -628,7 +628,8 @@ export default function App() {
   const [historico,setHistorico]=useState([]);
   const [msgModal,setMsgModal]=useState(null);
   const [toast,setToast]=useState(null);
-  const [alertaOperador,setAlertaOperador]=useState(null); // {jogador, motivo}
+  const [alertaOperador,setAlertaOperador]=useState(null);
+  const [remetente,setRemetente]=useState("Gabi da Profit");
   const timerRef=useRef(null);
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
   const diaNome=diaSemana(slot.data);
@@ -878,6 +879,17 @@ export default function App() {
                   }}>{l}</button>
                 ))}
               </div>
+              <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>
+                  Seu nome na mensagem
+                </div>
+                <input style={{...inp,width:"100%"}} value={remetente}
+                  onChange={e=>setRemetente(e.target.value)}
+                  placeholder="Ex: Gabi da Profit"/>
+                <div style={{fontSize:10,color:C.textMut,marginTop:4}}>
+                  Aparece como: <em>"Oi, João! <strong>{remetente||"..."}</strong> aqui, tudo bem?!"</em>
+                </div>
+              </div>
             </div>
 
             {/* categorias */}
@@ -1016,7 +1028,7 @@ export default function App() {
         {(tela==="cascata"||tela==="fechado")&&jogo&&(
           <CascataView jogo={jogo} onResponder={responder}
             onNovoJogo={novoJogo} onCancelar={cancelarJogo}
-            onMsg={setMsgModal} fireToast={fireToast}/>
+            onMsg={setMsgModal} fireToast={fireToast} remetente={remetente}/>
         )}
 
         {/* HISTÓRICO */}
