@@ -1,6 +1,100 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+// ─── SUPABASE ─────────────────────────────────────────────────────────────────
+const SUPA_URL = "https://hyjvqjrnpobujwvsqsrn.supabase.co";
+const SUPA_KEY = "sb_publishable_yevc2A-MWUy26r1xoF7kiQ_u2UZWyBJ";
+
+async function supaFetch(path, options={}) {
+  const res = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      "apikey": SUPA_KEY,
+      "Authorization": `Bearer ${SUPA_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": options.prefer || "return=representation",
+      ...options.headers,
+    },
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// CRUD jogadores
+const db = {
+  async getJogadores() {
+    return supaFetch("jogadores?select=*&ativo=eq.true&order=nome.asc");
+  },
+  async addJogador(j) {
+    return supaFetch("jogadores", {
+      method: "POST",
+      body: JSON.stringify({
+        nome: j.nome, telefone: j.tel, genero: j.g,
+        categoria: j.cat, dias_pref: j.dias, horas_pref: j.hrs,
+        aceita_misto: j.aceitaMisto, ativo: true,
+      }),
+    });
+  },
+  async updateJogador(id, data) {
+    return supaFetch(`jogadores?id=eq.${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+  async deleteJogador(id) {
+    return supaFetch(`jogadores?id=eq.${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ativo: false }),
+    });
+  },
+  async saveJogo(jogo) {
+    // salva o jogo
+    const [jogoSalvo] = await supaFetch("jogos", {
+      method: "POST",
+      body: JSON.stringify({
+        data: jogo.slot.data, hora: jogo.slot.hora,
+        quadra: jogo.slot.quadra, genero: jogo.slot.genero,
+        categoria: jogo.catDefinida, status: jogo.status,
+        ondas_usadas: jogo.ondaAtual,
+      }),
+    });
+    // salva participações
+    const participacoes = jogo.fila
+      .filter(j => ["confirmado","recusou","expirado"].includes(j.status))
+      .map(j => ({
+        jogo_id: jogoSalvo.id,
+        jogador_id: j.id,
+        resposta: j.status,
+        onda: j.ondaEnviado || 1,
+        respondido_em: j.respostaEm ? new Date().toISOString() : null,
+      }));
+    if (participacoes.length > 0) {
+      await supaFetch("participacoes", {
+        method: "POST",
+        body: JSON.stringify(participacoes),
+      });
+    }
+    return jogoSalvo;
+  },
+  async getFrequencia() {
+    return supaFetch("frequencia_jogadores?select=*&order=jogos_confirmados.desc");
+  },
+};
+
+// Converte jogador do Supabase para formato do app
+function fromDB(j) {
+  return {
+    id: j.id, nome: j.nome, tel: j.telefone,
+    g: j.genero, cat: j.categoria,
+    dias: j.dias_pref || [], hrs: j.horas_pref || [],
+    aceitaMisto: j.aceita_misto || false,
+  };
+}
+
+
 const HORAS = Array.from({length:28},(_,i)=>{
   const h=Math.floor(i/2)+8, m=i%2===0?"00":"30";
   return `${String(h).padStart(2,"0")}:${m}`;
@@ -570,8 +664,19 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
   function toggleArr(f,v){setForm(x=>({...x,[f]:x[f].includes(v)?x[f].filter(i=>i!==v):[...x[f],v]}));}
   function salvar(){
     if(!form.nome.trim()||!form.tel.trim()){fireToast("Preencha nome e telefone",false);return;}
-    setJogadores(p=>[...p,{...form,id:Date.now()}]);
-    setShowForm(false);setForm(F0);fireToast(`${form.nome} cadastrado! ✅`);
+    const novoLocal={...form,id:`temp-${Date.now()}`};
+    db.addJogador(form)
+      .then(data=>{
+        const salvo=fromDB(data[0]);
+        setJogadores(p=>[...p,salvo]);
+        fireToast(`${form.nome} cadastrado! ✅`);
+      })
+      .catch(()=>{
+        // fallback local se offline
+        setJogadores(p=>[...p,novoLocal]);
+        fireToast(`${form.nome} cadastrado localmente ✅`);
+      });
+    setShowForm(false);setForm(F0);
   }
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
@@ -646,10 +751,70 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
   </div>;
 }
 
+// ─── FREQUÊNCIA VIEW ──────────────────────────────────────────────────────────
+function FrequenciaView({fireToast}){
+  const [dados,setDados]=useState([]);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    db.getFrequencia()
+      .then(d=>{ setDados(d||[]); setLoading(false); })
+      .catch(()=>{ fireToast("Erro ao carregar frequência",false); setLoading(false); });
+  },[]);
+
+  return <div style={{animation:"fadeIn .3s ease"}}>
+    <div style={{marginBottom:18}}>
+      <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Frequência de Jogadores</h2>
+      <p style={{fontSize:12,color:C.textSub}}>Histórico de participação registrado no banco de dados</p>
+    </div>
+    {loading?<div style={{textAlign:"center",padding:"40px 0",color:C.textMut}}>
+      <div style={{fontSize:30,marginBottom:10}}>⏳</div>
+      <div>Carregando...</div>
+    </div>:dados.length===0?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
+      <div style={{fontSize:40,marginBottom:12}}>📊</div>
+      <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>Nenhum dado ainda</div>
+      <div style={{fontSize:13}}>Os dados aparecem após fechar o primeiro jogo</div>
+    </div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {dados.map((j,i)=>(
+        <div key={j.id} style={{background:"#fff",border:`1px solid ${C.border}`,
+          borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div style={{fontWeight:700,fontSize:13,color:C.textMut,width:24,textAlign:"right",flexShrink:0}}>#{i+1}</div>
+          <div style={{flex:1,minWidth:100}}>
+            <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>{j.nome}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <CatPill cat={j.categoria}/>
+              <GenBadge g={j.genero}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:700,color:C.green}}>{j.jogos_confirmados||0}</div>
+              <div style={{fontSize:10,color:C.textMut}}>Confirmados</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:700,color:C.red}}>{j.jogos_recusados||0}</div>
+              <div style={{fontSize:10,color:C.textMut}}>Recusados</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:700,color:C.text}}>{j.total_convites||0}</div>
+              <div style={{fontSize:10,color:C.textMut}}>Convites</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.textSub}}>{j.ultimo_jogo?new Date(j.ultimo_jogo).toLocaleDateString("pt-BR"):"—"}</div>
+              <div style={{fontSize:10,color:C.textMut}}>Último jogo</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>}
+  </div>;
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App(){
   const [tela,setTela]=useState("jogos"); // jogos | historico | jogadores
-  const [jogadores,setJogadores]=useState(JOGADORES_INIT);
+  const [jogadores,setJogadores]=useState([]);
+  const [loadingJogadores,setLoadingJogadores]=useState(true);
   const [jogosAtivos,setJogosAtivos]=useState([]); // lista de jogos simultâneos
   const [jogoAbertoId,setJogoAbertoId]=useState(null); // id do card expandido
   const [mostrarForm,setMostrarForm]=useState(false);
@@ -661,6 +826,14 @@ export default function App(){
   const timersRef=useRef({}); // {jogoId: intervalId}
 
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
+
+  // Carrega jogadores do Supabase
+  useEffect(()=>{
+    setLoadingJogadores(true);
+    db.getJogadores()
+      .then(data=>{ setJogadores(data.map(fromDB)); setLoadingJogadores(false); })
+      .catch(()=>{ fireToast("Erro ao carregar jogadores",false); setLoadingJogadores(false); });
+  },[]);
 
   // ── TIMER INDEPENDENTE POR JOGO ──────────────────────────────────────────
   useEffect(()=>{
@@ -767,6 +940,8 @@ export default function App(){
           scoreEquilibrio:sc,catDefinida:catDef,generoDef};
         setTimeout(()=>{
           setHistorico(h=>[fechado,...h]);
+          // Salva no Supabase
+          db.saveJogo(fechado).catch(()=>{});
           fireToast(`🎾 Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`);
         },300);
         return fechado;
@@ -836,6 +1011,7 @@ export default function App(){
           {[
             {id:"jogos",    icon:"🎾", txt:`Jogos${jogosAtivos.length?` (${jogosAtivos.length})`:""}`},
             {id:"historico",icon:"📋", txt:`Histórico${historico.length?` (${historico.length})`:""}`},
+            {id:"frequencia",icon:"📊", txt:"Frequência"},
             {id:"jogadores",icon:"👥", txt:"Jogadores"},
           ].map(n=>{
             const active=tela===n.id;
@@ -975,8 +1151,17 @@ export default function App(){
         </div>)}
       </div>}
 
+      {/* ══ FREQUÊNCIA ══ */}
+      {tela==="frequencia"&&<FrequenciaView fireToast={fireToast}/>}
+
       {/* ══ JOGADORES ══ */}
-      {tela==="jogadores"&&<JogadoresView jogadores={jogadores} setJogadores={setJogadores} fireToast={fireToast}/>}
+      {tela==="jogadores"&&(loadingJogadores
+        ?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
+          <div style={{fontSize:30,marginBottom:10}}>⏳</div>
+          <div>Carregando jogadores...</div>
+        </div>
+        :<JogadoresView jogadores={jogadores} setJogadores={setJogadores} fireToast={fireToast}/>
+      )}
     </div>
 
     {msgModal&&<MsgModal {...msgModal} onClose={()=>setMsgModal(null)} fireToast={fireToast}/>}
