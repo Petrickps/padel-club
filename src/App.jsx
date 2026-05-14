@@ -5,7 +5,7 @@ const HORAS = Array.from({length:28},(_,i)=>{
   const h=Math.floor(i/2)+8, m=i%2===0?"00":"30";
   return `${String(h).padStart(2,"0")}:${m}`;
 });
-const QUADRAS = [1,2,3,4];
+const QUADRAS = ["Quadra Ademicon","Quadra Sulita","Quadra 3","Quadra Odontotop"];
 const CATS_M   = ["2ª","3ª","4ª","5ª","6ª","Iniciante"];
 const CATS_F   = ["3ª","4ª","5ª","6ª","Iniciante"];
 const CATS_ALL = ["2ª","3ª","4ª","5ª","6ª","Iniciante"];
@@ -84,10 +84,15 @@ function buildMsgConvite(j,slot,confirmados,remetente="Gabi da Profit"){
   return `Oi, ${nome}! ${remetente} aqui, tudo bem?! 🎾\n\nTenho um jogo para você:\n\n📅 *${ds}-feira, ${fmtData(slot.data)}*\n🕐 *${slot.hora}*\n🏟️ *${slot.quadra}*${linhaConf}\n\nVocê topa? Responda *SIM* ou *NÃO* 🎾`;
 }
 
+function buildMsgAgradecimento(j, remetente="Gabi da Profit"){
+  const nome=j.nome.split(" ")[0];
+  return `Oi, ${nome}! Tudo bem 😊\n\nObrigada pela resposta! Te aviso no próximo jogo 🎾\n\n_${remetente}_`;
+}
+
 function buildMsgFechado(d1,d2,slot){
   const ds=diaSemana(slot.data);
   const todos=[...(d1||[]),...(d2||[])];
-  return `🎾 *JOGO CONFIRMADO!*\n\n📅 ${ds}-feira, ${fmtData(slot.data)}\n🕐 ${slot.hora}\n🏟️ ${slot.quadra}\n\n*${(d1||[]).map(j=>j.nome.split(" ")[0]).join(" & ")}*\n        ×\n*${(d2||[]).map(j=>j.nome.split(" ")[0]).join(" & ")}*\n\n${todos.map(j=>`• ${j.nome}`).join("\n")}\n\n✅ Confirme sua presença respondendo esta mensagem.\n❌ Em caso de desistência, avise com 24h de antecedência.\n\nNos vemos na quadra! 🏟️`;
+  return `🎾 *JOGO CONFIRMADO!*\n\n📅 ${ds}-feira, ${fmtData(slot.data)}\n🕐 ${slot.hora}\n🏟️ ${slot.quadra}\n\n${todos.map(j=>`• ${j.nome}`).join("\n")}`;
 }
 
 // ─── ATOMS ───────────────────────────────────────────────────────────────────
@@ -380,7 +385,14 @@ function CascataPanel({jogo,onResponder,onMsg,remetente}){
     {pend.length>0&&<SLabel label={`⏳ Aguardando — Onda ${jogo.ondaAtual}`} color={C.yellow}/>}
     {pend.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
       onSim={()=>onResponder(jogo.id,j.id,"sim")}
-      onNao={()=>onResponder(jogo.id,j.id,"nao")}/>)}
+      onNao={()=>{
+        onResponder(jogo.id,j.id,"nao");
+        setTimeout(()=>onMsg({
+          titulo:`Agradecimento — ${j.nome.split(" ")[0]}`,
+          texto:buildMsgAgradecimento(j,remetente),
+          tel:j.tel
+        }),200);
+      }}/>)}
     {recus.length>0&&<SLabel label={`❌ Recusaram / Sem resposta (${recus.length})`} color={C.textMut}/>}
     {recus.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}
     {fila.length>0&&<SLabel label={`🔜 Na fila (${fila.length})`} color={C.textMut}/>}
@@ -444,7 +456,7 @@ function FormNovoJogo({jogadores,remetente,onDispararCascata,onCancelar}){
         <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Quadra</div>
         <select style={inp} value={slot.quadra} onChange={e=>setSlot(s=>({...s,quadra:e.target.value}))}>
           <option value="">Selecione...</option>
-          {QUADRAS.map(q=><option key={q} value={`Quadra ${q}`}>Quadra {q}</option>)}
+          {QUADRAS.map(q=><option key={q} value={q}>{q}</option>)}
         </select>
       </div>
     </div>
