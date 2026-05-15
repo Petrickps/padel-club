@@ -992,27 +992,36 @@ export default function App(){
   // Polling — verifica atualizações no banco a cada 5s enquanto há jogos ativos
   useEffect(()=>{
     const interval = setInterval(async ()=>{
-      const jogosComDb = jogosAtivos.filter(j=>j.dbId&&j.status==="ativo");
-      if(!jogosComDb.length) return;
+      const jogosEmAndamento = jogosAtivos.filter(j=>j.status==="ativo");
+      if(!jogosEmAndamento.length) return;
 
-      for(const jg of jogosComDb){
+      for(const jg of jogosEmAndamento){
         try{
-          const res = await supaFetch(`participacoes?select=jogador_id,resposta&jogo_id=eq.${jg.dbId}`);
-          if(!Array.isArray(res)) continue;
+          // Busca jogos no banco pelo slot (data+hora+quadra)
+          const jogosDb = await supaFetch(
+            `jogos?select=id&data=eq.${jg.slot.data}&hora=eq.${jg.slot.hora}&quadra=eq.${encodeURIComponent(jg.slot.quadra)}&order=created_at.desc&limit=1`
+          );
+          if(!Array.isArray(jogosDb)||!jogosDb.length) continue;
+          const jogoDbId = jogosDb[0].id;
 
-          let atualizado = false;
+          // Busca participações desse jogo
+          const parts = await supaFetch(
+            `participacoes?select=jogador_id,resposta&jogo_id=eq.${jogoDbId}`
+          );
+          if(!Array.isArray(parts)) continue;
+
           setJogosAtivos(prev=>prev.map(j=>{
             if(j.id!==jg.id) return j;
             let novaFila=[...j.fila];
             let mudou=false;
 
-            res.forEach((p:any)=>{
+            parts.forEach((p:any)=>{
               novaFila=novaFila.map(f=>{
                 if(f.id!==p.jogador_id) return f;
-                if(f.status===p.resposta) return f;
+                if(f.status===p.resposta||p.resposta==="pendente") return f;
                 mudou=true;
-                if(p.resposta==="confirmado") fireToast(`✅ ${f.nome.split(" ")[0]} confirmou!`);
-                if(p.resposta==="recusou") fireToast(`❌ ${f.nome.split(" ")[0]} recusou`);
+                if(p.resposta==="confirmado") setTimeout(()=>fireToast(`✅ ${f.nome.split(" ")[0]} confirmou!`),0);
+                if(p.resposta==="recusou") setTimeout(()=>fireToast(`❌ ${f.nome.split(" ")[0]} recusou`),0);
                 return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
               });
             });
@@ -1021,13 +1030,14 @@ export default function App(){
             const conf=novaFila.filter((x:any)=>x.status==="confirmado");
             if(conf.length===4&&j.status==="ativo"){
               const{sc,d1,d2}=melhorDuplas(conf);
-              fireToast(`🎾 Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`);
-              setHistorico((h:any)=>[{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc},...h]);
+              setTimeout(()=>fireToast(`🎾 Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`),0);
               return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
             }
-            return{...j,fila:novaFila};
+            return{...j,fila:novaFila,dbId:jogoDbId};
           }));
-        }catch{}
+        }catch(e){
+          console.log("polling error:", e);
+        }
       }
     },5000);
     return()=>clearInterval(interval);
