@@ -538,7 +538,7 @@ function FormNovoJogo({jogadores,remetente,onDispararCascata,onCancelar}){
     </div>
 
     {/* slot */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}} className="g3">
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}} className="g2">
       <div>
         <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Data</div>
         <input type="date" min={today} style={inp} value={slot.data} onChange={e=>setSlot(s=>({...s,data:e.target.value}))}/>
@@ -1068,7 +1068,7 @@ export default function App(){
       ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
       input[type=date]::-webkit-calendar-picker-indicator{opacity:.5}
       @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-      @media(max-width:540px){.g3{grid-template-columns:1fr 1fr !important}.nav-txt{display:none}}
+      @media(max-width:540px){.g3{grid-template-columns:1fr 1fr !important}.g2{grid-template-columns:1fr !important}.nav-txt{display:none}}
       select option{background:#fff;color:#1A202C}
     `}</style>
 
