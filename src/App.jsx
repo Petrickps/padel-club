@@ -1298,11 +1298,24 @@ export default function App(){
 
     const pendentes=fila.filter(j=>j.ondaEnviado===1);
 
-    // Cria jogo no banco e salva pendentes
+    // Cria jogo no banco e salva pendentes E pré-confirmados
     db.criarJogo(slot, slot.catsAlvo.length===1?slot.catsAlvo[0]:null)
       .then(jogoDb=>{
-        // Atualiza o jogo com dbId
         setJogosAtivos(prev=>prev.map(j=>j.id===id?{...j,dbId:jogoDb.id}:j));
+        // Salva pré-confirmados como "confirmado" no banco
+        if(jaConf.length>0){
+          supaFetch("participacoes",{
+            method:"POST",
+            prefer:"return=minimal",
+            body:JSON.stringify(jaConf.map(j=>({
+              jogo_id:jogoDb.id,
+              jogador_id:j.id,
+              resposta:"confirmado",
+              onda:0,
+              respondido_em:new Date().toISOString(),
+            }))),
+          }).catch(()=>{});
+        }
         // Salva participações pendentes
         if(pendentes.length>0){
           db.savePendentes(jogoDb.id, pendentes).catch(()=>{});
