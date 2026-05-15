@@ -539,25 +539,34 @@ function FormNovoJogo({jogadores,remetente,onDispararCascata,onCancelar}){
     </div>
 
     {/* slot */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8,minWidth:0}} className="g2">
+    <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:8}}>
       <div>
         <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Data</div>
-        <input type="date" min={today} style={inp} value={slot.data} onChange={e=>setSlot(s=>({...s,data:e.target.value}))}/>
+        <input
+          type="date"
+          min={today}
+          style={{...inp, display:"block", width:"100%", maxWidth:"100%", minWidth:0,
+            WebkitAppearance:"none", appearance:"none"}}
+          value={slot.data}
+          onChange={e=>setSlot(s=>({...s,data:e.target.value}))}
+        />
         {slot.data&&<div style={{fontSize:10,color:C.green,marginTop:3,fontWeight:600}}>{diaSemana(slot.data)}-feira</div>}
       </div>
-      <div>
-        <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Horário</div>
-        <select style={inp} value={slot.hora} onChange={e=>setSlot(s=>({...s,hora:e.target.value}))}>
-          <option value="">Selecione...</option>
-          {HORAS.map(h=><option key={h}>{h}</option>)}
-        </select>
-      </div>
-      <div style={{gridColumn:"1/-1"}}>
-        <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Quadra</div>
-        <select style={inp} value={slot.quadra} onChange={e=>setSlot(s=>({...s,quadra:e.target.value}))}>
-          <option value="">Selecione...</option>
-          {QUADRAS.map(q=><option key={q} value={q}>{q}</option>)}
-        </select>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        <div>
+          <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Horário</div>
+          <select style={inp} value={slot.hora} onChange={e=>setSlot(s=>({...s,hora:e.target.value}))}>
+            <option value="">Selecione...</option>
+            {HORAS.map(h=><option key={h}>{h}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Quadra</div>
+          <select style={inp} value={slot.quadra} onChange={e=>setSlot(s=>({...s,quadra:e.target.value}))}>
+            <option value="">Selecione...</option>
+            {QUADRAS.map(q=><option key={q} value={q}>{q}</option>)}
+          </select>
+        </div>
       </div>
     </div>
 
@@ -1067,7 +1076,8 @@ export default function App(){
     <style>{`
       *{box-sizing:border-box;margin:0;padding:0}
       ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
-      input[type=date]::-webkit-calendar-picker-indicator{opacity:.5}
+      input[type=date]{display:block;width:100%;max-width:100%;min-width:0;-webkit-appearance:none;appearance:none;box-sizing:border-box;}
+      input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;flex-shrink:0}
       @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
       @media(max-width:540px){.g3{grid-template-columns:1fr 1fr !important}.g2{grid-template-columns:1fr !important}.nav-txt{display:none}}
       select option{background:#fff;color:#1A202C}
