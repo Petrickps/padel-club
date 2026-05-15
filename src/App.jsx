@@ -204,7 +204,11 @@ const JOGADORES_INIT = []; // jogadores carregados do Supabase
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 function fmtData(iso){if(!iso)return"";const[y,m,d]=iso.split("-");return`${d}/${m}/${y}`;}
-function diaSemana(iso){if(!iso)return"";return["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"][new Date(iso+"T12:00:00").getDay()];}
+function diaSemana(iso){
+  if(!iso) return "";
+  const dias=["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
+  return dias[new Date(iso+"T12:00:00").getDay()];
+}
 function fmtTempo(s){const m=Math.floor(s/60),sec=s%60;return`${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;}
 function scoreJogador(j,dn,hr){let s=0;if(j.dias.includes(dn))s+=50;if(j.hrs.includes(hr))s+=50;return s;}
 
@@ -242,7 +246,7 @@ function buildMsgConvite(j,slot,confirmados,remetente="Gabi da Profit"){
     const ultimo=nomes.pop();
     linhaConf=`\n*${nomes.join(", ")}* e *${ultimo}* já confirmaram.`;
   }
-  return `Oi, ${nome}! ${remetente} aqui, tudo bem?! 🎾\n\nTenho um jogo para você:\n\n📅 *${ds}-feira, ${fmtData(slot.data)}*\n🕐 *${slot.hora}*\n🏟️ *${slot.quadra}*${linhaConf}\n\nVocê topa? Responda *SIM* ou *NÃO* 🎾`;
+  return `Oi, ${nome}! ${remetente} aqui, tudo bem?! 🎾\n\nTenho um jogo para você:\n\n📅 *${ds}, ${fmtData(slot.data)}*\n🕐 *${slot.hora}*\n🏟️ *${slot.quadra}*${linhaConf}\n\nVocê topa? Responda *SIM* ou *NÃO* 🎾`;
 }
 
 function buildMsgAgradecimento(j, remetente="Gabi da Profit"){

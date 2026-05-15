@@ -142,7 +142,8 @@ Deno.serve(async (req) => {
 
   if (Array.isArray(confirmados) && confirmados.length >= 4) {
     await dbPatch("jogos", `id=eq.${jogo.id}`, { status: "fechado" });
-    const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${jogo.data}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados.map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
+    const dataFmt = jogo.data ? jogo.data.split("-").reverse().join("/") : "";
+    const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${dataFmt}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados.map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
     for (const c of confirmados) await enviarMsg(c.jogadores.telefone, msg);
     console.log("JOGO FECHADO!");
   }
