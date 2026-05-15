@@ -517,7 +517,8 @@ function FormNovoJogo({jogadores,remetente,onDispararCascata,onCancelar}){
   const slotOk=slot.data&&slot.hora&&slot.quadra&&candidatos.length>0&&
     (preConf.length===4||candSemPreConf.length>=Math.max(1,vagasAbertas));
   const inp={background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,
-    padding:"8px 12px",color:C.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"};
+    padding:"8px 12px",color:C.text,fontFamily:"inherit",fontSize:13,
+    width:"100%",outline:"none",boxSizing:"border-box",minWidth:0,maxWidth:"100%"};
 
   function toggleCat(c){setSlot(s=>({...s,catsAlvo:s.catsAlvo.includes(c)?s.catsAlvo.filter(x=>x!==c):[...s.catsAlvo,c]}));}
 
@@ -538,7 +539,7 @@ function FormNovoJogo({jogadores,remetente,onDispararCascata,onCancelar}){
     </div>
 
     {/* slot */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}} className="g2">
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8,minWidth:0}} className="g2">
       <div>
         <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Data</div>
         <input type="date" min={today} style={inp} value={slot.data} onChange={e=>setSlot(s=>({...s,data:e.target.value}))}/>
