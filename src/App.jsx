@@ -200,24 +200,7 @@ const C = {
   orange:"#EA580C",orangeBg:"#FFF7ED",
 };
 
-const JOGADORES_INIT = [
-  {id:1,  nome:"Carlos Silva",    g:"M", cat:"2ª", tel:"11991110001", dias:["Seg","Qua","Sex"], hrs:["08:00","09:00"],        aceitaMisto:false},
-  {id:2,  nome:"Roberto Lima",    g:"M", cat:"2ª", tel:"11991110002", dias:["Seg","Qua"],        hrs:["08:00","09:00"],        aceitaMisto:true},
-  {id:3,  nome:"André Costa",     g:"M", cat:"3ª", tel:"11991110003", dias:["Ter","Qui","Sáb"],  hrs:["10:00","19:00","20:00"],aceitaMisto:false},
-  {id:4,  nome:"Fábio Ramos",     g:"M", cat:"3ª", tel:"11991110004", dias:["Qua","Sex"],         hrs:["08:00","19:00"],        aceitaMisto:true},
-  {id:5,  nome:"Marcelo Souza",   g:"M", cat:"4ª", tel:"11991110005", dias:["Seg","Ter","Qui"],   hrs:["12:00","20:00"],        aceitaMisto:false},
-  {id:6,  nome:"Paulo Mendes",    g:"M", cat:"4ª", tel:"11991110006", dias:["Sex","Sáb"],          hrs:["09:00","10:00"],        aceitaMisto:true},
-  {id:7,  nome:"Lucas Ferreira",  g:"M", cat:"5ª", tel:"11991110007", dias:["Qua","Sex","Dom"],   hrs:["18:00","19:00"],        aceitaMisto:true},
-  {id:8,  nome:"Diego Alves",     g:"M", cat:"5ª", tel:"11991110008", dias:["Ter","Qui"],          hrs:["20:00","21:00"],        aceitaMisto:false},
-  {id:9,  nome:"Thiago Nunes",    g:"M", cat:"6ª", tel:"11991110009", dias:["Sáb","Dom"],          hrs:["09:00","10:00"],        aceitaMisto:true},
-  {id:10, nome:"Bruno Pinto",     g:"M", cat:"Iniciante",tel:"11991110010",dias:["Sáb"],           hrs:["10:00"],               aceitaMisto:false},
-  {id:11, nome:"Ana Paula",       g:"F", cat:"3ª", tel:"11991110011", dias:["Ter","Qui","Sáb"],  hrs:["09:00","10:00","11:00"],aceitaMisto:true},
-  {id:12, nome:"Carla Matos",     g:"F", cat:"3ª", tel:"11991110012", dias:["Seg","Qua"],          hrs:["10:00","11:00"],        aceitaMisto:false},
-  {id:13, nome:"Juliana Torres",  g:"F", cat:"4ª", tel:"11991110013", dias:["Ter","Sex"],          hrs:["08:00","19:00"],        aceitaMisto:true},
-  {id:14, nome:"Fernanda Lima",   g:"F", cat:"4ª", tel:"11991110014", dias:["Qua","Sáb"],          hrs:["10:00","20:00"],        aceitaMisto:true},
-  {id:15, nome:"Patrícia Gomes",  g:"F", cat:"5ª", tel:"11991110015", dias:["Seg","Qua","Sex"],   hrs:["19:00","20:00"],        aceitaMisto:true},
-  {id:16, nome:"Sandra Rocha",    g:"F", cat:"6ª", tel:"11991110016", dias:["Sáb","Dom"],          hrs:["09:00","10:00"],        aceitaMisto:false},
-];
+const JOGADORES_INIT = []; // jogadores carregados do Supabase
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 function fmtData(iso){if(!iso)return"";const[y,m,d]=iso.split("-");return`${d}/${m}/${y}`;}
