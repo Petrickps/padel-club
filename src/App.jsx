@@ -118,6 +118,35 @@ const db = {
     }
     return jogoSalvo;
   },
+
+  // Salva participações pendentes no banco (para webhook detectar)
+  async savePendentes(jogoDbId, jogadores) {
+    if (!jogadores.length) return;
+    const participacoes = jogadores.map(j => ({
+      jogo_id: jogoDbId,
+      jogador_id: j.id,
+      resposta: "pendente",
+      onda: j.ondaEnviado || 1,
+    }));
+    return supaFetch("participacoes", {
+      method: "POST",
+      prefer: "return=minimal",
+      body: JSON.stringify(participacoes),
+    });
+  },
+
+  // Cria jogo no banco e retorna id
+  async criarJogo(slot, catDefinida) {
+    const [jogo] = await supaFetch("jogos", {
+      method: "POST",
+      body: JSON.stringify({
+        data: slot.data, hora: slot.hora,
+        quadra: slot.quadra, genero: slot.genero,
+        categoria: catDefinida, status: "ativo",
+      }),
+    });
+    return jogo;
+  },
   async getFrequencia() {
     return supaFetch("frequencia_jogadores?select=*&order=jogos_confirmados.desc");
   },
@@ -131,6 +160,13 @@ function fromDB(j) {
     dias: j.dias_pref || [], hrs: j.horas_pref || [],
     aceitaMisto: j.aceita_misto || false,
   };
+}
+
+// Cliente Supabase para Realtime
+function supabaseRealtime() {
+  const { createClient } = window.supabase || {};
+  if (!createClient) return { channel:()=>({ on:()=>({ subscribe:()=>({}) }), unsubscribe:()=>{} }) };
+  return createClient(SUPA_URL, SUPA_KEY);
 }
 
 
@@ -950,6 +986,40 @@ export default function App(){
 
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
 
+  // Realtime — escuta mudanças na tabela participacoes
+  useEffect(()=>{
+    const channel = supabaseRealtime()
+      .channel("participacoes-changes")
+      .on("postgres_changes",{
+        event:"UPDATE", schema:"public", table:"participacoes"
+      }, payload=>{
+        const p = payload.new;
+        if(!p) return;
+        // Encontra o jogo correspondente pelo dbId
+        setJogosAtivos(prev=>prev.map(jg=>{
+          if(jg.dbId!==p.jogo_id) return jg;
+          // Encontra o jogador na fila pelo jogador_id
+          const novaFila=jg.fila.map(j=>{
+            if(j.id!==p.jogador_id) return j;
+            if(j.status===p.resposta) return j; // já atualizado
+            return{...j,status:p.resposta,respostaEm:"via WhatsApp"};
+          });
+          const conf=novaFila.filter(x=>x.status==="confirmado");
+          if(conf.length===4&&jg.status==="ativo"){
+            const{sc,d1,d2}=melhorDuplas(conf);
+            fireToast(`🎾 Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`);
+            return{...jg,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
+          }
+          if(p.resposta==="confirmado") fireToast(`✅ ${novaFila.find(x=>x.id===p.jogador_id)?.nome?.split(" ")[0]} confirmou!`);
+          if(p.resposta==="recusou") fireToast(`❌ ${novaFila.find(x=>x.id===p.jogador_id)?.nome?.split(" ")[0]} recusou`);
+          return{...jg,fila:novaFila};
+        }));
+      })
+      .subscribe();
+    return ()=>{ channel.unsubscribe(); };
+  },[]);
+
+
   // Carrega jogadores do Supabase
   useEffect(()=>{
     setLoadingJogadores(true);
@@ -1107,22 +1177,35 @@ export default function App(){
       timer:TIMER_MAX,
       status:"ativo",
       criadoEm:new Date().toLocaleTimeString("pt-BR"),
+      dbId:null, // será preenchido após salvar no banco
     };
     setJogosAtivos(prev=>[novoJogo,...prev]);
     setJogoAbertoId(id);
     setMostrarForm(false);
 
-    // Envia convites automaticamente para os pendentes da onda 1
     const pendentes=fila.filter(j=>j.ondaEnviado===1);
+
+    // Cria jogo no banco e salva pendentes
+    db.criarJogo(slot, slot.catsAlvo.length===1?slot.catsAlvo[0]:null)
+      .then(jogoDb=>{
+        // Atualiza o jogo com dbId
+        setJogosAtivos(prev=>prev.map(j=>j.id===id?{...j,dbId:jogoDb.id}:j));
+        // Salva participações pendentes
+        if(pendentes.length>0){
+          db.savePendentes(jogoDb.id, pendentes).catch(()=>{});
+        }
+      }).catch(()=>{});
+
+    // Envia convites automaticamente
     if(pendentes.length>0){
       enviarParaLista(pendentes, j=>buildMsgConvite(j,slot,jaConf,remetente))
         .then(({ok,erros})=>{
           if(erros>0) fireToast(`⚡ Onda 1: ${ok} enviado(s), ${erros} erro(s)`);
-          else fireToast(`⚡ Onda 1: ${ok} convite(s) enviado(s) automaticamente!`);
+          else fireToast(`⚡ Onda 1: ${ok} convite(s) enviado(s)!`);
         })
         .catch(()=>fireToast("Erro ao enviar convites",false));
     } else {
-      fireToast(`Onda 1 disparada! ${Math.min(8,fila.length)} convites ⚡`);
+      fireToast(`⚡ Cascata disparada!`);
     }
   }
 
