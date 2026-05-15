@@ -494,7 +494,7 @@ function JogoCard({jogo,isAtivo,onClick,onFechar}){
 }
 
 // ─── CASCATA PANEL ────────────────────────────────────────────────────────────
-function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar}:{jogo:any,onResponder:any,onMsg:any,remetente:string,onAtualizar:any}){
+function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar}){
   const conf=jogo.fila.filter(j=>j.status==="confirmado");
   const pend=jogo.fila.filter(j=>j.status==="pendente");
   const recus=jogo.fila.filter(j=>j.status==="recusou"||j.status==="expirado");
@@ -1020,7 +1020,7 @@ export default function App(){
             let novaFila=[...j.fila];
             let mudou=false;
 
-            parts.forEach((p:any)=>{
+            parts.forEach(p=>{
               novaFila=novaFila.map(f=>{
                 if(f.id!==p.jogador_id) return f;
                 if(f.status===p.resposta||p.resposta==="pendente") return f;
@@ -1032,7 +1032,7 @@ export default function App(){
             });
 
             if(!mudou) return j;
-            const conf=novaFila.filter((x:any)=>x.status==="confirmado");
+            const conf=novaFila.filter(x=>x.status==="confirmado");
             if(conf.length===4&&j.status==="ativo"){
               const{sc,d1,d2}=melhorDuplas(conf);
               setTimeout(()=>fireToast(`🎾 Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`),0);
@@ -1194,11 +1194,10 @@ export default function App(){
     }));
   }
 
-  async function atualizarJogo(jogoId: number) {
+  async function atualizarJogo(jogoId) {
     const jg = jogosAtivos.find(j=>j.id===jogoId);
     if (!jg) return;
     try {
-      // Busca jogo no banco pelo slot
       const jogosDb = await supaFetch(
         `jogos?select=id&data=eq.${jg.slot.data}&hora=eq.${jg.slot.hora}&quadra=eq.${encodeURIComponent(jg.slot.quadra)}&order=created_at.desc&limit=1`
       );
@@ -1212,7 +1211,7 @@ export default function App(){
         if (j.id!==jogoId) return j;
         let novaFila=[...j.fila];
         let mudou=false;
-        parts.forEach((p:any)=>{
+        parts.forEach(p=>{
           novaFila=novaFila.map(f=>{
             if (f.id!==p.jogador_id) return f;
             if (f.status===p.resposta||p.resposta==="pendente") return f;
@@ -1221,7 +1220,7 @@ export default function App(){
           });
         });
         if (!mudou) { fireToast("Nenhuma atualização"); return j; }
-        const conf=novaFila.filter((x:any)=>x.status==="confirmado");
+        const conf=novaFila.filter(x=>x.status==="confirmado");
         fireToast(`✅ Atualizado! ${conf.length}/4 confirmados`);
         if (conf.length===4&&j.status==="ativo") {
           const{sc,d1,d2}=melhorDuplas(conf);
