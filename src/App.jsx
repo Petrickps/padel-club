@@ -989,52 +989,49 @@ export default function App(){
 
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
 
-  // Realtime — escuta mudanças na tabela participacoes
+  // Polling — verifica atualizações no banco a cada 5s enquanto há jogos ativos
   useEffect(()=>{
-    const client = getSupabaseClient();
-    if (!client) return;
+    const interval = setInterval(async ()=>{
+      const jogosComDb = jogosAtivos.filter(j=>j.dbId&&j.status==="ativo");
+      if(!jogosComDb.length) return;
 
-    const channel = client
-      .channel("participacoes-changes")
-      .on("postgres_changes",{
-        event:"UPDATE", schema:"public", table:"participacoes"
-      }, (payload: any) => {
-        const p = payload.new;
-        if (!p) return;
-        console.log("REALTIME UPDATE:", p);
+      for(const jg of jogosComDb){
+        try{
+          const res = await supaFetch(`participacoes?select=jogador_id,resposta&jogo_id=eq.${jg.dbId}`);
+          if(!Array.isArray(res)) continue;
 
-        setJogosAtivos(prev => prev.map(jg => {
-          // Encontra jogo pelo dbId
-          if (jg.dbId !== p.jogo_id) return jg;
+          let atualizado = false;
+          setJogosAtivos(prev=>prev.map(j=>{
+            if(j.id!==jg.id) return j;
+            let novaFila=[...j.fila];
+            let mudou=false;
 
-          const novaFila = jg.fila.map(j => {
-            if (j.id !== p.jogador_id) return j;
-            if (j.status === p.resposta) return j;
-            return { ...j, status: p.resposta, respostaEm: "via WhatsApp" };
-          });
+            res.forEach((p:any)=>{
+              novaFila=novaFila.map(f=>{
+                if(f.id!==p.jogador_id) return f;
+                if(f.status===p.resposta) return f;
+                mudou=true;
+                if(p.resposta==="confirmado") fireToast(`✅ ${f.nome.split(" ")[0]} confirmou!`);
+                if(p.resposta==="recusou") fireToast(`❌ ${f.nome.split(" ")[0]} recusou`);
+                return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
+              });
+            });
 
-          const conf = novaFila.filter((x:any) => x.status === "confirmado");
-
-          if (p.resposta === "confirmado")
-            fireToast(`✅ ${novaFila.find((x:any)=>x.id===p.jogador_id)?.nome?.split(" ")[0]} confirmou via WhatsApp!`);
-          if (p.resposta === "recusou")
-            fireToast(`❌ ${novaFila.find((x:any)=>x.id===p.jogador_id)?.nome?.split(" ")[0]} recusou`);
-
-          if (conf.length === 4 && jg.status === "ativo") {
-            const{sc,d1,d2} = melhorDuplas(conf);
-            fireToast(`🎾 Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`);
-            return { ...jg, fila: novaFila, status:"fechado", dupla1:d1, dupla2:d2, scoreEquilibrio:sc };
-          }
-
-          return { ...jg, fila: novaFila };
-        }));
-      })
-      .subscribe((status: string) => {
-        console.log("REALTIME STATUS:", status);
-      });
-
-    return () => { client.removeChannel(channel); };
-  }, []);
+            if(!mudou) return j;
+            const conf=novaFila.filter((x:any)=>x.status==="confirmado");
+            if(conf.length===4&&j.status==="ativo"){
+              const{sc,d1,d2}=melhorDuplas(conf);
+              fireToast(`🎾 Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`);
+              setHistorico((h:any)=>[{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc},...h]);
+              return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
+            }
+            return{...j,fila:novaFila};
+          }));
+        }catch{}
+      }
+    },5000);
+    return()=>clearInterval(interval);
+  },[jogosAtivos]);
 
 
   // Carrega jogadores do Supabase
