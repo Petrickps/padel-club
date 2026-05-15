@@ -7,7 +7,8 @@ const SUPA_KEY = "sb_publishable_yevc2A-MWUy26r1xoF7kiQ_u2UZWyBJ";
 // Cliente Supabase para Realtime (via CDN carregado no index.html)
 function getSupabaseClient() {
   try {
-    const { createClient } = (window as any).supabase;
+    const { createClient } = window.supabase || {};
+    if (!createClient) return null;
     return createClient(SUPA_URL, SUPA_KEY);
   } catch {
     return null;
@@ -182,7 +183,7 @@ const CATS_M   = ["2ª","3ª","4ª","5ª","6ª","Iniciante"];
 const CATS_F   = ["3ª","4ª","5ª","6ª","Iniciante"];
 const CATS_ALL = ["2ª","3ª","4ª","5ª","6ª","Iniciante"];
 const NIVEL    = {"2ª":90,"3ª":75,"4ª":60,"5ª":45,"6ª":30,"Iniciante":15};
-const TIMER_MAX = 20;
+const TIMER_MAX = 20; // mantido apenas para o TimerRing visual, sem efeito na lógica
 
 const CAT_BG  = {"2ª":"#FFE8E8","3ª":"#FFF0DC","4ª":"#FFFACC","5ª":"#DCFAEC","6ª":"#DCF0FF","Iniciante":"#F0DCFF"};
 const CAT_FG  = {"2ª":"#B91C1C","3ª":"#92400E","4ª":"#78620A","5ª":"#065F46","6ª":"#1E40AF","Iniciante":"#6B21A8"};
@@ -979,18 +980,38 @@ function FrequenciaView({fireToast}){
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App(){
-  const [tela,setTela]=useState("jogos"); // jogos | historico | jogadores
+  const [tela,setTela]=useState("jogos");
   const [jogadores,setJogadores]=useState([]);
   const [loadingJogadores,setLoadingJogadores]=useState(true);
-  const [jogosAtivos,setJogosAtivos]=useState([]); // lista de jogos simultâneos
-  const [jogoAbertoId,setJogoAbertoId]=useState(null); // id do card expandido
+
+  // Persiste jogos no localStorage
+  const [jogosAtivos,setJogosAtivosRaw]=useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("jogosAtivos")||"[]"); }
+    catch{ return []; }
+  });
+  const [jogoAbertoId,setJogoAbertoIdRaw]=useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("jogoAbertoId")||"null"); }
+    catch{ return null; }
+  });
+  function setJogosAtivos(fn){
+    setJogosAtivosRaw(prev=>{
+      const next=typeof fn==="function"?fn(prev):fn;
+      try{ localStorage.setItem("jogosAtivos",JSON.stringify(next)); }catch{}
+      return next;
+    });
+  }
+  function setJogoAbertoId(id){
+    setJogoAbertoIdRaw(id);
+    try{ localStorage.setItem("jogoAbertoId",JSON.stringify(id)); }catch{}
+  }
+
   const [mostrarForm,setMostrarForm]=useState(false);
   const [historico,setHistorico]=useState([]);
   const [msgModal,setMsgModal]=useState(null);
   const [alertaOp,setAlertaOp]=useState(null);
   const [toast,setToast]=useState(null);
-  const [remetente,setRemetente]=useState("Gabi da Profit");
-  const timersRef=useRef({}); // {jogoId: intervalId}
+  const [remetente,setRemetente]=useState(()=>localStorage.getItem("remetente")||"Gabi da Profit");
+  const timersRef=useRef({});
 
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
 
@@ -1057,26 +1078,24 @@ export default function App(){
       .catch(()=>{ fireToast("Erro ao carregar jogadores",false); setLoadingJogadores(false); });
   },[]);
 
-  // ── TIMER INDEPENDENTE POR JOGO ──────────────────────────────────────────
+  // ── TIMER INDEPENDENTE POR JOGO (apenas visual) ──────────────────────────
   useEffect(()=>{
-    // inicia timer para cada jogo ativo que ainda não tem
     jogosAtivos.forEach(j=>{
       if(j.status==="ativo"&&!timersRef.current[j.id]){
         timersRef.current[j.id]=setInterval(()=>{
           setJogosAtivos(prev=>prev.map(jg=>{
             if(jg.id!==j.id||jg.status!=="ativo") return jg;
-            if(jg.timer-1<=0) return processarFimOnda(jg);
+            // Timer só conta para visual — não expira jogadores
+            if(jg.timer-1<=0) return{...jg,timer:0};
             return{...jg,timer:jg.timer-1};
           }));
         },1000);
       }
-      // limpa timer de jogos não mais ativos
       if(j.status!=="ativo"&&timersRef.current[j.id]){
         clearInterval(timersRef.current[j.id]);
         delete timersRef.current[j.id];
       }
     });
-    // limpa timers de jogos removidos
     Object.keys(timersRef.current).forEach(id=>{
       if(!jogosAtivos.find(j=>j.id===Number(id))){
         clearInterval(timersRef.current[id]);
