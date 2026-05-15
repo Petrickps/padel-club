@@ -1294,6 +1294,8 @@ export default function App(){
       fireToast("Erro ao atualizar",false);
     }
   }
+
+  function dispararCascata({slot,jaConf,fila}){
     const id=Date.now();
     const todasEntradas=[...jaConf,...fila];
     const novoJogo={
