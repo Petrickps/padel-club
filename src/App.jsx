@@ -251,7 +251,7 @@ function buildMsgConvite(j,slot,confirmados,remetente="Gabi da Profit"){
 
 function buildMsgAgradecimento(j, remetente="Gabi da Profit"){
   const nome=j.nome.split(" ")[0];
-  return `Oi, ${nome}! Tudo bem 😊\n\nObrigada pela resposta! Te aviso no próximo jogo 🎾\n\n_${remetente}_`;
+  return `Oi, ${nome}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo 🎾\n\n_${remetente}_`;
 }
 
 function buildMsgFechado(d1,d2,slot){
