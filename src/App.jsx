@@ -7,7 +7,8 @@ const SUPA_KEY = "sb_publishable_yevc2A-MWUy26r1xoF7kiQ_u2UZWyBJ";
 // Cliente Supabase para Realtime (via CDN carregado no index.html)
 function getSupabaseClient() {
   try {
-    const { createClient } = window.supabase || {};
+    const sup = window.supabase || {};
+    const { createClient } = sup;
     if (!createClient) return null;
     return createClient(SUPA_URL, SUPA_KEY);
   } catch {
@@ -164,7 +165,7 @@ const db = {
 };
 
 // Converte jogador do Supabase para formato do app
-function fromDB(j: any) {
+function fromDB(j) {
   return {
     id: j.id, nome: j.nome, tel: j.telefone,
     g: j.genero, cat: j.categoria, cat2: j.categoria2||null,
