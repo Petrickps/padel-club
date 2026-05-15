@@ -4,6 +4,44 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 const SUPA_URL = "https://hyjvqjrnpobujwvsqsrn.supabase.co";
 const SUPA_KEY = "sb_publishable_yevc2A-MWUy26r1xoF7kiQ_u2UZWyBJ";
 
+// ─── EVOLUTION API ────────────────────────────────────────────────────────────
+const EVO_URL      = "https://evolution-api-production-27b9.up.railway.app";
+const EVO_KEY      = "pas23EVE02@";
+const EVO_INSTANCE = "profit1";
+
+async function enviarWhatsApp(telefone, mensagem) {
+  // formata número: remove tudo que não é dígito, garante código país 55
+  const num = telefone.replace(/\D/g,"");
+  const numFmt = num.startsWith("55") ? num : `55${num}`;
+
+  const res = await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": EVO_KEY,
+    },
+    body: JSON.stringify({
+      number: numFmt,
+      text: mensagem,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  return res.json();
+}
+
+// Envia para vários jogadores em paralelo
+async function enviarParaLista(jogadores, buildMsg) {
+  const resultados = await Promise.allSettled(
+    jogadores.map(j => enviarWhatsApp(j.tel, buildMsg(j)))
+  );
+  const erros = resultados.filter(r => r.status === "rejected").length;
+  const ok    = resultados.filter(r => r.status === "fulfilled").length;
+  return { ok, erros };
+}
+
 async function supaFetch(path, options={}) {
   const res = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
     ...options,
@@ -957,9 +995,18 @@ export default function App(){
     if(!aguard.length) return{...prev,fila:novaFila,status:"sem_candidatos"};
     const prox=prev.ondaAtual+1;
     const n=Math.min(8,(4-conf.length)*2,aguard.length);
+    const paraConvidar=aguard.slice(0,n);
     const filaAtualizada=novaFila.map(j=>
-      aguard.slice(0,n).find(p=>p.id===j.id)?{...j,status:"pendente",ondaEnviado:prox}:j
+      paraConvidar.find(p=>p.id===j.id)?{...j,status:"pendente",ondaEnviado:prox}:j
     );
+    // Envia convites automaticamente para nova onda
+    setTimeout(()=>{
+      enviarParaLista(paraConvidar, j=>buildMsgConvite(j,prev.slot,conf,remetente))
+        .then(({ok,erros})=>{
+          if(erros>0) fireToast(`⚡ Onda ${prox}: ${ok} enviado(s), ${erros} erro(s)`);
+          else fireToast(`⚡ Onda ${prox}: ${ok} convite(s) enviado(s)!`);
+        }).catch(()=>{});
+    },500);
     return{...prev,fila:filaAtualizada,ondaAtual:prox,timer:TIMER_MAX};
   }
 
@@ -1025,14 +1072,25 @@ export default function App(){
           scoreEquilibrio:sc,catDefinida:catDef,generoDef};
         setTimeout(()=>{
           setHistorico(h=>[fechado,...h]);
-          // Salva no Supabase
           db.saveJogo(fechado).catch(()=>{});
           fireToast(`🎾 Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`);
+          // Envia mensagem de jogo fechado para todos os confirmados
+          const msgFechado=buildMsgFechado(d1,d2,jg.slot);
+          conf.forEach(j=>enviarWhatsApp(j.tel,msgFechado).catch(()=>{}));
         },300);
         return fechado;
       }
-      if(resp==="nao"&&pend.length===0)
+      if(resp==="nao"&&pend.length===0){
+        // Envia agradecimento automaticamente
+        const jogRecusou=novaFila.find(j=>j.id===playerId);
+        if(jogRecusou) enviarWhatsApp(jogRecusou.tel,buildMsgAgradecimento(jogRecusou,remetente)).catch(()=>{});
         return processarFimOnda({...jg,fila:novaFila,catDefinida:catDef,generoDef});
+      }
+      // Se recusou mas ainda tem pendentes, só envia agradecimento
+      if(resp==="nao"){
+        const jogRecusou=novaFila.find(j=>j.id===playerId);
+        if(jogRecusou) enviarWhatsApp(jogRecusou.tel,buildMsgAgradecimento(jogRecusou,remetente)).catch(()=>{});
+      }
       return{...jg,fila:novaFila,catDefinida:catDef,generoDef};
     }));
   }
@@ -1053,7 +1111,19 @@ export default function App(){
     setJogosAtivos(prev=>[novoJogo,...prev]);
     setJogoAbertoId(id);
     setMostrarForm(false);
-    fireToast(`Onda 1 disparada! ${Math.min(8,fila.length)} convites ⚡`);
+
+    // Envia convites automaticamente para os pendentes da onda 1
+    const pendentes=fila.filter(j=>j.ondaEnviado===1);
+    if(pendentes.length>0){
+      enviarParaLista(pendentes, j=>buildMsgConvite(j,slot,jaConf,remetente))
+        .then(({ok,erros})=>{
+          if(erros>0) fireToast(`⚡ Onda 1: ${ok} enviado(s), ${erros} erro(s)`);
+          else fireToast(`⚡ Onda 1: ${ok} convite(s) enviado(s) automaticamente!`);
+        })
+        .catch(()=>fireToast("Erro ao enviar convites",false));
+    } else {
+      fireToast(`Onda 1 disparada! ${Math.min(8,fila.length)} convites ⚡`);
+    }
   }
 
   function removerJogo(id){
