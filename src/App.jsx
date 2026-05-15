@@ -690,13 +690,49 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
       });
     setShowForm(false);setForm(F0);
   }
+  const [editando,setEditando]=useState(null); // jogador sendo editado
+
+  function abrirEdicao(j){
+    setForm({
+      nome:j.nome, g:j.g, cats:[j.cat,...(j.cat2?[j.cat2]:[])],
+      tel:j.tel, dias:j.dias, hrs:j.hrs, aceitaMisto:j.aceitaMisto
+    });
+    setEditando(j.id);
+    setShowForm(true);
+  }
+
+  function salvarEdicao(){
+    if(!form.nome.trim()||!form.tel.trim()){fireToast("Preencha nome e telefone",false);return;}
+    if(form.cats.length===0){fireToast("Selecione ao menos uma categoria",false);return;}
+    const atualizado={...form,cat:form.cats[0],cat2:form.cats[1]||null,id:editando};
+    db.updateJogador(editando,{
+      nome:form.nome, telefone:form.tel, genero:form.g,
+      categoria:form.cats[0], categoria2:form.cats[1]||null,
+      dias_pref:form.dias, horas_pref:form.hrs, aceita_misto:form.aceitaMisto
+    }).then(()=>{
+      setJogadores(p=>p.map(j=>j.id===editando?atualizado:j));
+      fireToast(`${form.nome} atualizado! ✅`);
+    }).catch(()=>{
+      setJogadores(p=>p.map(j=>j.id===editando?atualizado:j));
+      fireToast(`${form.nome} atualizado localmente ✅`);
+    });
+    setShowForm(false);setEditando(null);setForm(F0);
+  }
+
+  function excluirJogador(j){
+    if(!window.confirm(`Excluir ${j.nome}?`)) return;
+    db.deleteJogador(j.id)
+      .then(()=>{ setJogadores(p=>p.filter(x=>x.id!==j.id)); fireToast(`${j.nome} removido`); })
+      .catch(()=>{ setJogadores(p=>p.filter(x=>x.id!==j.id)); fireToast(`${j.nome} removido`); });
+  }
+
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
       <div>
         <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Jogadores</h2>
         <p style={{fontSize:12,color:C.textSub}}>{jogadores.length} cadastrado(s)</p>
       </div>
-      <Btn onClick={()=>setShowForm(true)}>+ Novo</Btn>
+      <Btn onClick={()=>{setEditando(null);setForm(F0);setShowForm(true);}}>+ Novo</Btn>
     </div>
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
       {["M","F"].map(g=><Chip key={g} active={gf===g} onClick={()=>setGf(g)} color={C.blue}>
@@ -720,8 +756,16 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
               borderRadius:99,padding:"2px 6px",color:C.textSub}}>{d}</span>)}
           </div>
         </div>
-        <div style={{fontSize:11,color:C.textSub,textAlign:"right"}}>
+        <div style={{fontSize:11,color:C.textSub,textAlign:"right",marginRight:4}}>
           <div>{j.tel}</div><div style={{marginTop:2,color:C.textMut}}>Nível {NIVEL[j.cat]}</div>
+        </div>
+        <div style={{display:"flex",gap:5,flexShrink:0}}>
+          <button onClick={()=>abrirEdicao(j)} style={{background:C.blueBg,border:`1px solid #93C5FD`,
+            borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,
+            color:C.blue,fontFamily:"inherit",fontWeight:600}}>✏️ Editar</button>
+          <button onClick={()=>excluirJogador(j)} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
+            borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,
+            color:C.red,fontFamily:"inherit",fontWeight:600}}>🗑️</button>
         </div>
       </div>)}
     </div>
@@ -730,7 +774,7 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
       justifyContent:"center",padding:16}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:22,
         width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.15)"}}>
-        <h3 style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:16}}>Novo Jogador</h3>
+        <h3 style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:16}}>{editando?"Editar Jogador":"Novo Jogador"}</h3>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>Nome</div>
             <input style={inp} value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} placeholder="Nome completo"/></div>
@@ -770,8 +814,12 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
             <div><div style={{fontSize:13,fontWeight:600,color:form.aceitaMisto?C.yellow:C.textSub}}>⚤ Aceita jogos mistos</div>
               <div style={{fontSize:11,color:C.textMut}}>Será convidado para partidas mistas</div></div>
           </label>
-          <div style={{display:"flex",gap:8}}><Btn onClick={salvar} style={{flex:1}}>Salvar</Btn>
-            <Btn variant="ghost" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn onClick={editando?salvarEdicao:salvar} style={{flex:1}}>
+              {editando?"Salvar alterações":"Salvar"}
+            </Btn>
+            <Btn variant="ghost" onClick={()=>{setShowForm(false);setEditando(null);setForm(F0);}}>Cancelar</Btn>
+          </div>
         </div>
       </div>
     </div>}
