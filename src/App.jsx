@@ -985,26 +985,68 @@ export default function App(){
   const [jogadores,setJogadores]=useState([]);
   const [loadingJogadores,setLoadingJogadores]=useState(true);
 
-  // Persiste jogos no localStorage
-  const [jogosAtivos,setJogosAtivosRaw]=useState(()=>{
-    try{ return JSON.parse(localStorage.getItem("jogosAtivos")||"[]"); }
-    catch{ return []; }
-  });
-  const [jogoAbertoId,setJogoAbertoIdRaw]=useState(()=>{
-    try{ return JSON.parse(localStorage.getItem("jogoAbertoId")||"null"); }
-    catch{ return null; }
-  });
+  // Carrega jogos ativos do Supabase ao iniciar
+  const [jogosAtivos,setJogosAtivosRaw]=useState([]);
+  const [jogoAbertoId,setJogoAbertoId]=useState(null);
+
   function setJogosAtivos(fn){
     setJogosAtivosRaw(prev=>{
       const next=typeof fn==="function"?fn(prev):fn;
-      try{ localStorage.setItem("jogosAtivos",JSON.stringify(next)); }catch{}
       return next;
     });
   }
-  function setJogoAbertoId(id){
-    setJogoAbertoIdRaw(id);
-    try{ localStorage.setItem("jogoAbertoId",JSON.stringify(id)); }catch{}
-  }
+
+  useEffect(()=>{
+    // Carrega jogos ativos e seus jogadores do banco
+    async function carregarJogosAtivos(){
+      try{
+        const jogosDb=await supaFetch("jogos?select=*&status=eq.ativo&order=created_at.desc");
+        if(!Array.isArray(jogosDb)||!jogosDb.length) return;
+
+        const jogosComFila=await Promise.all(jogosDb.map(async jg=>{
+          const parts=await supaFetch(
+            `participacoes?select=jogador_id,resposta,onda&jogo_id=eq.${jg.id}`
+          );
+          // Busca jogadores das participações
+          const ids=[...new Set((parts||[]).map(p=>p.jogador_id))];
+          if(!ids.length) return null;
+          const jogadoresDb=await supaFetch(
+            `jogadores?select=*&id=in.(${ids.join(",")})`
+          );
+          const fila=(parts||[]).map(p=>{
+            const j=(jogadoresDb||[]).find(x=>x.id===p.jogador_id);
+            if(!j) return null;
+            return{
+              ...fromDB(j),
+              status:p.resposta,
+              ondaEnviado:p.onda,
+              respostaEm:p.resposta!=="pendente"?"via WhatsApp":null,
+              score:0,
+            };
+          }).filter(Boolean);
+
+          return{
+            id:Date.now()+Math.random(),
+            dbId:jg.id,
+            slot:{data:jg.data,hora:jg.hora,quadra:jg.quadra,genero:jg.genero,catsAlvo:[]},
+            fila,
+            ondaAtual:jg.ondas_usadas||1,
+            catDefinida:jg.categoria,
+            generoDef:null,
+            timer:0,
+            status:"ativo",
+            criadoEm:jg.created_at,
+          };
+        }));
+
+        const validos=jogosComFila.filter(Boolean);
+        if(validos.length) setJogosAtivosRaw(validos);
+      }catch(e){
+        console.log("Erro ao carregar jogos:",e);
+      }
+    }
+    carregarJogosAtivos();
+  },[]);
 
   const [mostrarForm,setMostrarForm]=useState(false);
   const [historico,setHistorico]=useState([]);
