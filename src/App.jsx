@@ -4,6 +4,16 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 const SUPA_URL = "https://hyjvqjrnpobujwvsqsrn.supabase.co";
 const SUPA_KEY = "sb_publishable_yevc2A-MWUy26r1xoF7kiQ_u2UZWyBJ";
 
+// Cliente Supabase para Realtime (via CDN carregado no index.html)
+function getSupabaseClient() {
+  try {
+    const { createClient } = (window as any).supabase;
+    return createClient(SUPA_URL, SUPA_KEY);
+  } catch {
+    return null;
+  }
+}
+
 // ─── EVOLUTION API ────────────────────────────────────────────────────────────
 const EVO_URL      = "https://evolution-api-production-27b9.up.railway.app";
 const EVO_KEY      = "pas23EVE02@";
@@ -153,20 +163,13 @@ const db = {
 };
 
 // Converte jogador do Supabase para formato do app
-function fromDB(j) {
+function fromDB(j: any) {
   return {
     id: j.id, nome: j.nome, tel: j.telefone,
     g: j.genero, cat: j.categoria, cat2: j.categoria2||null,
     dias: j.dias_pref || [], hrs: j.horas_pref || [],
     aceitaMisto: j.aceita_misto || false,
   };
-}
-
-// Cliente Supabase para Realtime
-function supabaseRealtime() {
-  const { createClient } = window.supabase || {};
-  if (!createClient) return { channel:()=>({ on:()=>({ subscribe:()=>({}) }), unsubscribe:()=>{} }) };
-  return createClient(SUPA_URL, SUPA_KEY);
 }
 
 
@@ -988,36 +991,50 @@ export default function App(){
 
   // Realtime — escuta mudanças na tabela participacoes
   useEffect(()=>{
-    const channel = supabaseRealtime()
+    const client = getSupabaseClient();
+    if (!client) return;
+
+    const channel = client
       .channel("participacoes-changes")
       .on("postgres_changes",{
         event:"UPDATE", schema:"public", table:"participacoes"
-      }, payload=>{
+      }, (payload: any) => {
         const p = payload.new;
-        if(!p) return;
-        // Encontra o jogo correspondente pelo dbId
-        setJogosAtivos(prev=>prev.map(jg=>{
-          if(jg.dbId!==p.jogo_id) return jg;
-          // Encontra o jogador na fila pelo jogador_id
-          const novaFila=jg.fila.map(j=>{
-            if(j.id!==p.jogador_id) return j;
-            if(j.status===p.resposta) return j; // já atualizado
-            return{...j,status:p.resposta,respostaEm:"via WhatsApp"};
+        if (!p) return;
+        console.log("REALTIME UPDATE:", p);
+
+        setJogosAtivos(prev => prev.map(jg => {
+          // Encontra jogo pelo dbId
+          if (jg.dbId !== p.jogo_id) return jg;
+
+          const novaFila = jg.fila.map(j => {
+            if (j.id !== p.jogador_id) return j;
+            if (j.status === p.resposta) return j;
+            return { ...j, status: p.resposta, respostaEm: "via WhatsApp" };
           });
-          const conf=novaFila.filter(x=>x.status==="confirmado");
-          if(conf.length===4&&jg.status==="ativo"){
-            const{sc,d1,d2}=melhorDuplas(conf);
+
+          const conf = novaFila.filter((x:any) => x.status === "confirmado");
+
+          if (p.resposta === "confirmado")
+            fireToast(`✅ ${novaFila.find((x:any)=>x.id===p.jogador_id)?.nome?.split(" ")[0]} confirmou via WhatsApp!`);
+          if (p.resposta === "recusou")
+            fireToast(`❌ ${novaFila.find((x:any)=>x.id===p.jogador_id)?.nome?.split(" ")[0]} recusou`);
+
+          if (conf.length === 4 && jg.status === "ativo") {
+            const{sc,d1,d2} = melhorDuplas(conf);
             fireToast(`🎾 Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`);
-            return{...jg,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
+            return { ...jg, fila: novaFila, status:"fechado", dupla1:d1, dupla2:d2, scoreEquilibrio:sc };
           }
-          if(p.resposta==="confirmado") fireToast(`✅ ${novaFila.find(x=>x.id===p.jogador_id)?.nome?.split(" ")[0]} confirmou!`);
-          if(p.resposta==="recusou") fireToast(`❌ ${novaFila.find(x=>x.id===p.jogador_id)?.nome?.split(" ")[0]} recusou`);
-          return{...jg,fila:novaFila};
+
+          return { ...jg, fila: novaFila };
         }));
       })
-      .subscribe();
-    return ()=>{ channel.unsubscribe(); };
-  },[]);
+      .subscribe((status: string) => {
+        console.log("REALTIME STATUS:", status);
+      });
+
+    return () => { client.removeChannel(channel); };
+  }, []);
 
 
   // Carrega jogadores do Supabase
