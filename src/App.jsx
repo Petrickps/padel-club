@@ -33,7 +33,8 @@ const db = {
       method: "POST",
       body: JSON.stringify({
         nome: j.nome, telefone: j.tel, genero: j.g,
-        categoria: j.cat, dias_pref: j.dias, horas_pref: j.hrs,
+        categoria: j.cat, categoria2: j.cat2||null,
+        dias_pref: j.dias, horas_pref: j.hrs,
         aceita_misto: j.aceitaMisto, ativo: true,
       }),
     });
@@ -88,7 +89,7 @@ const db = {
 function fromDB(j) {
   return {
     id: j.id, nome: j.nome, tel: j.telefone,
-    g: j.genero, cat: j.categoria,
+    g: j.genero, cat: j.categoria, cat2: j.categoria2||null,
     dias: j.dias_pref || [], hrs: j.horas_pref || [],
     aceitaMisto: j.aceita_misto || false,
   };
@@ -150,7 +151,11 @@ function filtrarCandidatos(jogadores,genero,catsAlvo,dn,hr){
     if(genero==="M"&&j.g!=="M")return false;
     if(genero==="F"&&j.g!=="F")return false;
     if(genero==="Misto"&&!j.aceitaMisto)return false;
-    if(catsAlvo.length>0&&!catsAlvo.includes(j.cat))return false;
+    if(catsAlvo.length>0){
+      // aceita se cat principal OU cat2 estiver no filtro
+      const temCat=catsAlvo.includes(j.cat)||(j.cat2&&catsAlvo.includes(j.cat2));
+      if(!temCat) return false;
+    }
     return true;
   }).map(j=>({...j,score:scoreJogador(j,dn,hr)})).sort((a,b)=>b.score-a.score);
 }
@@ -533,7 +538,7 @@ function FormNovoJogo({jogadores,remetente,onDispararCascata,onCancelar}){
     </div>
 
     {/* slot */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}} className="g3">
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}} className="g3">
       <div>
         <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Data</div>
         <input type="date" min={today} style={inp} value={slot.data} onChange={e=>setSlot(s=>({...s,data:e.target.value}))}/>
@@ -546,7 +551,7 @@ function FormNovoJogo({jogadores,remetente,onDispararCascata,onCancelar}){
           {HORAS.map(h=><option key={h}>{h}</option>)}
         </select>
       </div>
-      <div>
+      <div style={{gridColumn:"1/-1"}}>
         <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Quadra</div>
         <select style={inp} value={slot.quadra} onChange={e=>setSlot(s=>({...s,quadra:e.target.value}))}>
           <option value="">Selecione...</option>
@@ -657,22 +662,29 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
   const [gf,setGf]=useState("M");
   const [showForm,setShowForm]=useState(false);
   const DIAS=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
-  const F0={nome:"",g:"M",cat:"4ª",tel:"",dias:[],hrs:[],aceitaMisto:false};
+  const F0={nome:"",g:"M",cats:["4ª"],tel:"",dias:[],hrs:[],aceitaMisto:false};
   const [form,setForm]=useState(F0);
   const inp={background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,
     padding:"9px 12px",color:C.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"};
   function toggleArr(f,v){setForm(x=>({...x,[f]:x[f].includes(v)?x[f].filter(i=>i!==v):[...x[f],v]}));}
+  function toggleCat(c){
+    setForm(f=>{
+      if(f.cats.includes(c)) return {...f,cats:f.cats.filter(x=>x!==c)};
+      if(f.cats.length>=2) return f; // máximo 2
+      return {...f,cats:[...f.cats,c]};
+    });
+  }
   function salvar(){
     if(!form.nome.trim()||!form.tel.trim()){fireToast("Preencha nome e telefone",false);return;}
-    const novoLocal={...form,id:`temp-${Date.now()}`};
-    db.addJogador(form)
+    if(form.cats.length===0){fireToast("Selecione ao menos uma categoria",false);return;}
+    const novoLocal={...form,id:`temp-${Date.now()}`,cat:form.cats[0]};
+    db.addJogador({...form,cat:form.cats[0],cat2:form.cats[1]||null})
       .then(data=>{
         const salvo=fromDB(data[0]);
         setJogadores(p=>[...p,salvo]);
         fireToast(`${form.nome} cadastrado! ✅`);
       })
       .catch(()=>{
-        // fallback local se offline
         setJogadores(p=>[...p,novoLocal]);
         fireToast(`${form.nome} cadastrado localmente ✅`);
       });
@@ -703,6 +715,7 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
           </div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             <CatPill cat={j.cat}/>
+            {j.cat2&&<CatPill cat={j.cat2}/>}
             {j.dias.map(d=><span key={d} style={{fontSize:9,background:C.bg,border:`1px solid ${C.border}`,
               borderRadius:99,padding:"2px 6px",color:C.textSub}}>{d}</span>)}
           </div>
@@ -723,11 +736,25 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
             <input style={inp} value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} placeholder="Nome completo"/></div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>Gênero</div>
-              <select style={inp} value={form.g} onChange={e=>setForm(f=>({...f,g:e.target.value,cat:"4ª"}))}>
+              <select style={inp} value={form.g} onChange={e=>setForm(f=>({...f,g:e.target.value,cats:["4ª"]}))}>
                 <option value="M">Masculino</option><option value="F">Feminino</option></select></div>
-            <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>Categoria</div>
-              <select style={inp} value={form.cat} onChange={e=>setForm(f=>({...f,cat:e.target.value}))}>
-                {(form.g==="M"?CATS_M:CATS_F).map(c=><option key={c}>{c}</option>)}</select></div>
+            <div>
+              <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>
+                Categoria(s) <span style={{color:C.textMut,fontWeight:400,textTransform:"none",letterSpacing:0}}>— máx. 2</span>
+              </div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {(form.g==="M"?CATS_M:CATS_F).map(c=>(
+                  <button key={c} onClick={()=>toggleCat(c)} style={{
+                    background:form.cats.includes(c)?CAT_BG[c]:"#fff",
+                    border:`1.5px solid ${form.cats.includes(c)?CAT_BOR[c]:C.border}`,
+                    color:form.cats.includes(c)?CAT_FG[c]:C.textSub,
+                    borderRadius:99,padding:"4px 10px",cursor:(!form.cats.includes(c)&&form.cats.length>=2)?"not-allowed":"pointer",
+                    fontFamily:"inherit",fontWeight:700,fontSize:11,transition:"all .15s",
+                    opacity:(!form.cats.includes(c)&&form.cats.length>=2)?.4:1
+                  }}>{form.cats.includes(c)?"✓ ":""}{c}</button>
+                ))}
+              </div>
+            </div>
           </div>
           <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>Telefone</div>
             <input style={inp} value={form.tel} onChange={e=>setForm(f=>({...f,tel:e.target.value}))} placeholder="11999990000"/></div>
@@ -1032,29 +1059,33 @@ export default function App(){
       {tela==="jogos"&&<div style={{animation:"fadeIn .3s ease"}}>
 
         {/* header */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <div>
-            <h1 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:2}}>Jogos Ativos</h1>
-            <div style={{fontSize:12,color:C.textSub,display:"flex",gap:12}}>
-              {ativos>0&&<span style={{color:C.yellow,fontWeight:600}}>⏳ {ativos} em andamento</span>}
-              {fechados>0&&<span style={{color:C.green,fontWeight:600}}>✅ {fechados} fechado(s)</span>}
-              {jogosAtivos.length===0&&<span>Nenhum jogo ativo</span>}
-            </div>
-          </div>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {/* campo remetente */}
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:10,color:C.textMut,fontWeight:600,whiteSpace:"nowrap"}}>Enviado por:</span>
-              <input value={remetente} onChange={e=>setRemetente(e.target.value)}
-                style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,
-                  padding:"6px 10px",fontSize:12,color:C.text,fontFamily:"inherit",outline:"none",width:140}}/>
+        <div style={{marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",
+            gap:10,marginBottom:10,flexWrap:"wrap"}}>
+            <div>
+              <h1 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:2}}>Jogos Ativos</h1>
+              <div style={{fontSize:12,color:C.textSub,display:"flex",gap:12,flexWrap:"wrap"}}>
+                {ativos>0&&<span style={{color:C.yellow,fontWeight:600}}>⏳ {ativos} em andamento</span>}
+                {fechados>0&&<span style={{color:C.green,fontWeight:600}}>✅ {fechados} fechado(s)</span>}
+                {jogosAtivos.length===0&&<span>Nenhum jogo ativo</span>}
+              </div>
             </div>
             <button onClick={()=>{setMostrarForm(f=>!f);}} style={{
               background:C.green,color:"#fff",border:"none",borderRadius:10,
-              padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",
-              fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}>
+              padding:"10px 18px",fontSize:13,fontWeight:700,cursor:"pointer",
+              fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>
               ＋ Novo Jogo
             </button>
+          </div>
+          {/* campo remetente — linha separada */}
+          <div style={{display:"flex",alignItems:"center",gap:8,
+            background:"#fff",border:`1px solid ${C.border}`,borderRadius:10,
+            padding:"8px 14px"}}>
+            <span style={{fontSize:11,color:C.textMut,fontWeight:600,whiteSpace:"nowrap"}}>Enviado por:</span>
+            <input value={remetente} onChange={e=>setRemetente(e.target.value)}
+              style={{background:"transparent",border:"none",fontSize:13,color:C.text,
+                fontFamily:"inherit",outline:"none",flex:1,minWidth:0}}
+              placeholder="Seu nome"/>
           </div>
         </div>
 
