@@ -535,7 +535,7 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
   return <div style={{marginTop:12}}>
     {/* onda info */}
     {!fechado&&<div style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
-      borderRadius:10,padding:"10px 14px",marginBottom:12,
+      borderRadius:10,padding:"10px 14px",marginBottom:8,
       display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
       <div style={{flex:1}}>
         <div style={{fontWeight:700,fontSize:13,color:C.text}}>Onda {jogo.ondaAtual} em andamento</div>
@@ -546,12 +546,16 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
         color:C.green,fontFamily:"inherit",fontWeight:700}}>
         🔄 Atualizar
       </button>
+      <div style={{fontSize:22,fontWeight:700,color:C.green}}>{conf.length}<span style={{color:C.textMut,fontSize:16}}>/4</span></div>
+    </div>}
+
+    {/* botão cancelar jogo */}
+    {!fechado&&<div style={{marginBottom:12,textAlign:"right"}}>
       <button onClick={onCancelarJogo} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
-        borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:11,
-        color:C.red,fontFamily:"inherit",fontWeight:700}}>
+        color:C.red,borderRadius:8,padding:"6px 14px",cursor:"pointer",
+        fontSize:11,fontWeight:700,fontFamily:"inherit"}}>
         ✕ Cancelar jogo
       </button>
-      <div style={{fontSize:22,fontWeight:700,color:C.green}}>{conf.length}<span style={{color:C.textMut,fontSize:16}}>/4</span></div>
     </div>}
 
     {/* confirmados destaque */}
@@ -1347,6 +1351,8 @@ export default function App(){
     setCancelarModal(null);
     fireToast("Jogo cancelado!");
   }
+
+  function dispararCascata({slot,jaConf,fila}){
     const id=Date.now();
     const todasEntradas=[...jaConf,...fila];
     const novoJogo={
