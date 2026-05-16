@@ -373,7 +373,42 @@ function TimerRing({seg,total,size=54}){
   </div>;
 }
 
-// ─── MSG MODAL ────────────────────────────────────────────────────────────────
+// ─── SOM DE NOTIFICAÇÃO ───────────────────────────────────────────────────────
+function tocarSom(tipo="confirmado") {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (tipo === "confirmado") {
+      // Som alegre — dois tons subindo
+      osc.frequency.setValueAtTime(520, ctx.currentTime);
+      osc.frequency.setValueAtTime(780, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } else if (tipo === "fechado") {
+      // Som de vitória — três tons
+      osc.frequency.setValueAtTime(520, ctx.currentTime);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15);
+      osc.frequency.setValueAtTime(780, ctx.currentTime + 0.30);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.6);
+    } else {
+      // Som neutro — tom único
+      osc.frequency.setValueAtTime(400, ctx.currentTime);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    }
+  } catch {}
+}
 function MsgModal({titulo,texto,tel,onClose,fireToast}){
   const[ok,setOk]=useState(false);
   function copiar(){navigator.clipboard.writeText(texto).then(()=>{setOk(true);fireToast("Copiado! 📋");setTimeout(()=>setOk(false),2000);});}
@@ -1196,6 +1231,25 @@ export default function App(){
 
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
 
+  // PWA — pedido de instalação
+  useEffect(()=>{
+    window.addEventListener("beforeinstallprompt", e=>{
+      e.preventDefault();
+      window._pwaPrompt=e;
+    });
+  },[]);
+
+  // Push notifications — pede permissão automaticamente
+  useEffect(()=>{
+    if("Notification" in window && Notification.permission==="default"){
+      setTimeout(()=>{
+        Notification.requestPermission().then(p=>{
+          if(p==="granted") fireToast("🔔 Notificações ativadas!");
+        });
+      }, 3000);
+    }
+  },[]);
+
   // Polling — verifica atualizações no banco a cada 5s enquanto há jogos ativos
   useEffect(()=>{
     const interval = setInterval(async ()=>{
@@ -1227,7 +1281,17 @@ export default function App(){
                 if(f.id!==p.jogador_id) return f;
                 if(f.status===p.resposta||p.resposta==="pendente") return f;
                 mudou=true;
-                if(p.resposta==="confirmado") setTimeout(()=>fireToast(`✅ ${f.nome.split(" ")[0]} confirmou!`),0);
+                if(p.resposta==="confirmado"){
+                  setTimeout(()=>fireToast(`✅ ${f.nome.split(" ")[0]} confirmou!`),0);
+                  tocarSom("confirmado");
+                  // Notificação push
+                  if(Notification.permission==="granted"){
+                    new Notification("✅ Confirmação recebida!", {
+                      body: `${f.nome.split(" ")[0]} confirmou o jogo!`,
+                      icon: "/logo.png",
+                    });
+                  }
+                }
                 if(p.resposta==="recusou") setTimeout(()=>fireToast(`❌ ${f.nome.split(" ")[0]} recusou`),0);
                 return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
               });
@@ -1237,6 +1301,7 @@ export default function App(){
             const conf=novaFila.filter(x=>x.status==="confirmado");
             if(conf.length===4&&j.status==="ativo"){
               const{sc,d1,d2}=melhorDuplas(conf);
+              tocarSom("fechado");
               setTimeout(()=>fireToast(`🎾 Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`),0);
               return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
             }
@@ -1574,7 +1639,13 @@ export default function App(){
           <div style={{fontSize:9,color:C.textMut,letterSpacing:1.5,textTransform:"uppercase",
             borderLeft:`1px solid ${C.border}`,paddingLeft:8}}>Convites</div>
         </div>
-        <nav style={{display:"flex",gap:2}}>
+        <nav style={{display:"flex",gap:2,alignItems:"center"}}>
+          {window._pwaPrompt&&<button onClick={()=>{window._pwaPrompt.prompt();}} style={{
+            background:C.green,color:"#fff",border:"none",borderRadius:8,
+            padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",
+            fontFamily:"inherit",marginRight:4}}>
+            📲 Instalar
+          </button>}
           {[
             {id:"jogos",    icon:"🎾", txt:`Jogos${jogosAtivos.length?` (${jogosAtivos.length})`:""}`},
             {id:"historico",icon:"📋", txt:`Histórico${historico.length?` (${historico.length})`:""}`},
