@@ -1403,14 +1403,14 @@ export default function App(){
   const [darkMode,setDarkMode]=useState(()=>localStorage.getItem("darkMode")==="true");
 
   // Atualiza C global quando darkMode muda
-  useMemo(()=>{
-    Object.assign(C, darkMode?DARK:LIGHT);
-  },[darkMode]);
+  Object.assign(C, darkMode?DARK:LIGHT);
 
   function toggleDark(){
     setDarkMode(d=>{
-      localStorage.setItem("darkMode",String(!d));
-      return !d;
+      const next=!d;
+      localStorage.setItem("darkMode",String(next));
+      Object.assign(C, next?DARK:LIGHT);
+      return next;
     });
   }
   const [historico,setHistorico]=useState([]);
@@ -1849,12 +1849,14 @@ export default function App(){
     transition:"background .3s,color .3s"}}>
     <style>{`
       *{box-sizing:border-box;margin:0;padding:0}
-      ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
+      ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px}
       input[type=date]{display:block;width:100%;max-width:100%;min-width:0;-webkit-appearance:none;appearance:none;box-sizing:border-box;}
       input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;flex-shrink:0}
+      input[type=date]::-webkit-calendar-picker-indicator{filter:${darkMode?"invert(1)":"none"}}
       @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
       @media(max-width:540px){.g3{grid-template-columns:1fr 1fr !important}.g2{grid-template-columns:1fr !important}.nav-txt{display:none}}
-      select option{background:#fff;color:#1A202C}
+      select option{background:${C.bg};color:${C.text}}
+      select{color-scheme:${darkMode?"dark":"light"}}
     `}</style>
 
     {/* NAV */}
