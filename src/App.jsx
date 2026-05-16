@@ -192,7 +192,7 @@ const CAT_BG  = {"2ª":"#FFE8E8","3ª":"#FFF0DC","4ª":"#FFFACC","5ª":"#DCFAEC"
 const CAT_FG  = {"2ª":"#B91C1C","3ª":"#92400E","4ª":"#78620A","5ª":"#065F46","6ª":"#1E40AF","Iniciante":"#6B21A8"};
 const CAT_BOR = {"2ª":"#FCA5A5","3ª":"#FCD34D","4ª":"#FDE68A","5ª":"#6EE7B7","6ª":"#93C5FD","Iniciante":"#D8B4FE"};
 
-const LIGHT = {
+const C = {
   bg:"#F7F8FA", surface:"#FFFFFF", border:"#E2E8F0",
   text:"#1A202C", textSub:"#64748B", textMut:"#94A3B8",
   green:"#059669", greenBg:"#ECFDF5", greenBor:"#6EE7B7",
@@ -201,19 +201,6 @@ const LIGHT = {
   blue:"#2563EB",  blueBg:"#EFF6FF",
   orange:"#EA580C",orangeBg:"#FFF7ED",
 };
-
-const DARK = {
-  bg:"#0F172A", surface:"#1E293B", border:"#334155",
-  text:"#F1F5F9", textSub:"#94A3B8", textMut:"#64748B",
-  green:"#34D399", greenBg:"#064E3B", greenBor:"#065F46",
-  red:"#F87171",  redBg:"#450A0A",  redBor:"#7F1D1D",
-  yellow:"#FCD34D",yellowBg:"#422006",yellowBor:"#92400E",
-  blue:"#60A5FA", blueBg:"#1E3A5F",
-  orange:"#FB923C",orangeBg:"#431407",
-};
-
-// Tema global — será atualizado pelo App
-let C = {...LIGHT};
 
 const JOGADORES_INIT = [];
 
@@ -1400,19 +1387,6 @@ export default function App(){
     carregarJogosAtivos();
   },[]);
 
-  const [darkMode,setDarkMode]=useState(()=>localStorage.getItem("darkMode")==="true");
-
-  // Atualiza C global quando darkMode muda
-  Object.assign(C, darkMode?DARK:LIGHT);
-
-  function toggleDark(){
-    setDarkMode(d=>{
-      const next=!d;
-      localStorage.setItem("darkMode",String(next));
-      Object.assign(C, next?DARK:LIGHT);
-      return next;
-    });
-  }
   const [historico,setHistorico]=useState([]);
   const [msgModal,setMsgModal]=useState(null);
   const [alertaOp,setAlertaOp]=useState(null);
@@ -1845,22 +1819,19 @@ export default function App(){
   const fechados=jogosAtivos.filter(j=>j.status==="fechado").length;
 
   return <div style={{minHeight:"100vh",background:C.bg,color:C.text,
-    fontFamily:"system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-    transition:"background .3s,color .3s"}}>
+    fontFamily:"system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
     <style>{`
       *{box-sizing:border-box;margin:0;padding:0}
-      ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px}
+      ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
       input[type=date]{display:block;width:100%;max-width:100%;min-width:0;-webkit-appearance:none;appearance:none;box-sizing:border-box;}
       input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;flex-shrink:0}
-      input[type=date]::-webkit-calendar-picker-indicator{filter:${darkMode?"invert(1)":"none"}}
       @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
       @media(max-width:540px){.g3{grid-template-columns:1fr 1fr !important}.g2{grid-template-columns:1fr !important}.nav-txt{display:none}}
-      select option{background:${C.bg};color:${C.text}}
-      select{color-scheme:${darkMode?"dark":"light"}}
+      select option{background:#fff;color:#1A202C}
     `}</style>
 
     {/* NAV */}
-    <div style={{background:darkMode?"#1E293B":"#fff",borderBottom:`1px solid ${C.border}`,padding:"0 16px",
+    <div style={{background:"#fff",borderBottom:`1px solid ${C.border}`,padding:"0 16px",
       position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
       <div style={{maxWidth:900,margin:"0 auto",display:"flex",alignItems:"center",
         justifyContent:"space-between",height:52}}>
@@ -1876,13 +1847,6 @@ export default function App(){
             fontFamily:"inherit",marginRight:4}}>
             📲 Instalar
           </button>}
-          {/* Botão modo escuro */}
-          <button onClick={toggleDark} title={darkMode?"Modo claro":"Modo escuro"} style={{
-            background:"none",border:`1px solid ${C.border}`,borderRadius:8,
-            padding:"5px 8px",cursor:"pointer",fontSize:16,marginRight:4,
-            color:C.textSub,transition:"all .2s"}}>
-            {darkMode?"☀️":"🌙"}
-          </button>
           {[
             {id:"jogos",    icon:"🎾", txt:`Jogos${jogosAtivos.length?` (${jogosAtivos.length})`:""}`},
             {id:"historico",icon:"📋", txt:`Histórico${historico.length?` (${historico.length})`:""}`},
