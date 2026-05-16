@@ -777,6 +777,7 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
 function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCancelar}){
   const [slot,setSlot]=useState({data:"",hora:"",quadra:"",genero:"Todos",catsAlvo:[]});
   const [preConf,setPreConf]=useState([]);
+  const [tamanhoOnda,setTamanhoOnda]=useState(8);
   const today=new Date().toISOString().split("T")[0];
   const diaNome=diaSemana(slot.data);
   const candidatos=useMemo(()=>slot.data&&slot.hora
@@ -797,8 +798,8 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
     const jaConf=candidatos.filter(j=>idsPreConf.has(j.id))
       .map(j=>({...j,status:"confirmado",ondaEnviado:null,respostaEm:"Pré-confirmado"}));
     const fila=candidatos.filter(j=>!idsPreConf.has(j.id))
-      .map((j,i)=>({...j,ordem:i,status:i<8?"pendente":"aguardando",ondaEnviado:i<8?1:null,respostaEm:null}));
-    onDispararCascata({slot,jaConf,fila,preConf});
+      .map((j,i)=>({...j,ordem:i,status:i<tamanhoOnda?"pendente":"aguardando",ondaEnviado:i<tamanhoOnda?1:null,respostaEm:null}));
+    onDispararCascata({slot,jaConf,fila,preConf,tamanhoOnda});
   }
 
   return <div style={{background:"#fff",border:`1.5px solid ${C.blue}`,borderRadius:16,
@@ -925,6 +926,27 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
         ))}
       </div>
     </div>}
+
+    {/* tamanho da onda */}
+    <div style={{marginBottom:12}}>
+      <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",
+        letterSpacing:.8,marginBottom:6}}>Convites por onda</div>
+      <div style={{display:"flex",gap:8}}>
+        {[8,16].map(n=>(
+          <button key={n} onClick={()=>setTamanhoOnda(n)} style={{
+            flex:1,padding:"8px 0",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
+            fontWeight:700,fontSize:13,transition:"all .15s",
+            background:tamanhoOnda===n?C.green:"#fff",
+            color:tamanhoOnda===n?"#fff":C.textSub,
+            border:`1.5px solid ${tamanhoOnda===n?C.green:C.border}`}}>
+            {n} convites
+          </button>
+        ))}
+      </div>
+      <div style={{fontSize:11,color:C.textMut,marginTop:4}}>
+        {tamanhoOnda===8?"Padrão — menor risco de dupla confirmação":"Maior alcance por onda — mais agressivo"}
+      </div>
+    </div>
 
     <button onClick={disparar} disabled={!slotOk} style={{width:"100%",padding:12,fontSize:14,
       fontWeight:700,borderRadius:10,border:"none",cursor:slotOk?"pointer":"not-allowed",
@@ -1155,7 +1177,13 @@ function FrequenciaView({fireToast}){
     carregar();
   },[periodo]);
 
+  const [busca,setBusca]=useState("");
+
   const labels={sempre:"Desde sempre",30:"Últimos 30 dias",7:"Últimos 7 dias"};
+
+  const dadosFiltrados=dados
+    .filter(d=>d.total_convites>0)
+    .filter(d=>!busca||d.nome.toLowerCase().includes(busca.toLowerCase()));
 
   return <div style={{animation:"fadeIn .3s ease"}}>
     <div style={{marginBottom:16}}>
@@ -1163,8 +1191,8 @@ function FrequenciaView({fireToast}){
       <p style={{fontSize:12,color:C.textSub}}>Histórico de participação com aprendizado automático</p>
     </div>
 
-    {/* filtros de período */}
-    <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+    {/* filtros de período + busca */}
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
       {[{v:"sempre",l:"📊 Desde sempre"},{v:"30dias",l:"📅 Últimos 30 dias"},{v:"7dias",l:"🗓️ Últimos 7 dias"}].map(({v,l})=>(
         <button key={v} onClick={()=>setPeriodo(v)} style={{
           background:periodo===v?C.blue+"18":"#fff",
@@ -1177,17 +1205,36 @@ function FrequenciaView({fireToast}){
       ))}
     </div>
 
+    {/* campo de busca */}
+    <div style={{position:"relative",marginBottom:16}}>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",
+        fontSize:14,color:C.textMut}}>🔍</span>
+      <input
+        value={busca}
+        onChange={e=>setBusca(e.target.value)}
+        placeholder="Buscar jogador..."
+        style={{width:"100%",padding:"9px 12px 9px 36px",borderRadius:10,
+          border:`1.5px solid ${busca?C.blue:C.border}`,fontSize:13,
+          fontFamily:"inherit",color:C.text,outline:"none",
+          background:"#fff",boxSizing:"border-box"}}/>
+      {busca&&<button onClick={()=>setBusca("")} style={{position:"absolute",right:10,
+        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",
+        cursor:"pointer",color:C.textMut,fontSize:16}}>✕</button>}
+    </div>
+
     {loading?<div style={{textAlign:"center",padding:"40px 0",color:C.textMut}}>
       <div style={{fontSize:30,marginBottom:10}}>⏳</div>
       <div>Carregando...</div>
-    </div>:dados.filter(d=>d.total_convites>0).length===0
+    </div>:dadosFiltrados.length===0
     ?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
       <div style={{fontSize:40,marginBottom:12}}>📊</div>
-      <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>Nenhum dado no período</div>
-      <div style={{fontSize:13}}>Os dados aparecem após fechar jogos neste período</div>
+      <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>
+        {busca?"Nenhum jogador encontrado":"Nenhum dado no período"}
+      </div>
+      <div style={{fontSize:13}}>{busca?"Tente outro nome":"Os dados aparecem após fechar jogos neste período"}</div>
     </div>
     :<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {dados.filter(d=>d.total_convites>0).map((j,i)=>(
+      {dadosFiltrados.map((j,i)=>(
         <div key={j.id} style={{background:"#fff",border:`1px solid ${C.border}`,
           borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
           <div style={{fontWeight:700,fontSize:13,color:C.textMut,width:24,textAlign:"right",flexShrink:0}}>#{i+1}</div>
@@ -1454,7 +1501,8 @@ export default function App(){
     const aguard=novaFila.filter(j=>j.status==="aguardando");
     if(!aguard.length) return{...prev,fila:novaFila,status:"sem_candidatos"};
     const prox=prev.ondaAtual+1;
-    const n=Math.min(8,(4-conf.length)*2,aguard.length);
+    const tam=prev.tamanhoOnda||8;
+    const n=Math.min(tam,(4-conf.length)*2,aguard.length);
     const paraConvidar=aguard.slice(0,n);
     const filaAtualizada=novaFila.map(j=>
       paraConvidar.find(p=>p.id===j.id)?{...j,status:"pendente",ondaEnviado:prox}:j
@@ -1663,19 +1711,20 @@ export default function App(){
     fireToast("Jogo cancelado!");
   }
 
-  function dispararCascata({slot,jaConf,fila}){
+  function dispararCascata({slot,jaConf,fila,tamanhoOnda=8}){
     const id=Date.now();
     const todasEntradas=[...jaConf,...fila];
     const novoJogo={
       id,slot,
       fila:todasEntradas,
       ondaAtual:1,
+      tamanhoOnda,
       catDefinida:slot.catsAlvo.length===1?slot.catsAlvo[0]:null,
       generoDef:null,
       timer:TIMER_MAX,
       status:"ativo",
       criadoEm:new Date().toLocaleTimeString("pt-BR"),
-      dbId:null, // será preenchido após salvar no banco
+      dbId:null,
     };
     setJogosAtivos(prev=>[novoJogo,...prev]);
     setJogoAbertoId(id);
