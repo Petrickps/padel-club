@@ -210,20 +210,50 @@ function diaSemana(iso){
   return dias[new Date(iso+"T12:00:00").getDay()];
 }
 function fmtTempo(s){const m=Math.floor(s/60),sec=s%60;return`${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;}
-function scoreJogador(j,dn,hr){let s=0;if(j.dias.includes(dn))s+=50;if(j.hrs.includes(hr))s+=50;return s;}
+function scoreJogador(j, dn, hr, metricas={}) {
+  let score = 0;
 
-function filtrarCandidatos(jogadores,genero,catsAlvo,dn,hr){
+  // 1. Disponibilidade cadastrada (peso 20)
+  if (j.dias && j.dias.includes(dn)) score += 20;
+  if (j.hrs && j.hrs.includes(hr)) score += 20;
+
+  // 2. Disponibilidade REAL aprendida (peso 30)
+  const m = metricas[j.id] || {};
+  const diaSemanaNum = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].indexOf(dn);
+  if (m.dias_confirmados && m.dias_confirmados.includes(diaSemanaNum)) score += 30;
+  if (m.horas_confirmadas && m.horas_confirmadas.includes(hr)) score += 30;
+
+  // 3. Taxa de confirmação (peso 30) — quem confirma mais sobe
+  if (m.taxa_confirmacao) score += Math.round(m.taxa_confirmacao * 0.3);
+
+  // 4. Responde rápido — onda média baixa (peso 10)
+  if (m.onda_media_confirmacao) {
+    const rapidez = Math.max(0, 10 - (m.onda_media_confirmacao - 1) * 3);
+    score += rapidez;
+  }
+
+  // 5. Jogou recentemente — prioriza quem não joga há mais tempo
+  if (m.ultimo_jogo) {
+    const diasSemJogar = Math.floor((Date.now() - new Date(m.ultimo_jogo)) / 86400000);
+    score += Math.min(20, diasSemJogar); // até 20pts por dias sem jogar
+  } else {
+    score += 20; // nunca jogou — prioridade máxima
+  }
+
+  return score;
+}
+
+function filtrarCandidatos(jogadores,genero,catsAlvo,dn,hr,metricas={}){
   return jogadores.filter(j=>{
     if(genero==="M"&&j.g!=="M")return false;
     if(genero==="F"&&j.g!=="F")return false;
     if(genero==="Misto"&&!j.aceitaMisto)return false;
     if(catsAlvo.length>0){
-      // aceita se cat principal OU cat2 estiver no filtro
       const temCat=catsAlvo.includes(j.cat)||(j.cat2&&catsAlvo.includes(j.cat2));
       if(!temCat) return false;
     }
     return true;
-  }).map(j=>({...j,score:scoreJogador(j,dn,hr)})).sort((a,b)=>b.score-a.score);
+  }).map(j=>({...j,score:scoreJogador(j,dn,hr,metricas)})).sort((a,b)=>b.score-a.score);
 }
 
 function melhorDuplas(g4){
@@ -624,14 +654,14 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
 }
 
 // ─── FORM NOVO JOGO ───────────────────────────────────────────────────────────
-function FormNovoJogo({jogadores,remetente,onDispararCascata,onCancelar}){
+function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCancelar}){
   const [slot,setSlot]=useState({data:"",hora:"",quadra:"",genero:"Todos",catsAlvo:[]});
   const [preConf,setPreConf]=useState([]);
   const today=new Date().toISOString().split("T")[0];
   const diaNome=diaSemana(slot.data);
   const candidatos=useMemo(()=>slot.data&&slot.hora
-    ?filtrarCandidatos(jogadores,slot.genero,slot.catsAlvo,diaNome,slot.hora):[]
-    ,[jogadores,slot.genero,slot.catsAlvo,diaNome,slot.data,slot.hora]);
+    ?filtrarCandidatos(jogadores,slot.genero,slot.catsAlvo,diaNome,slot.hora,metricas):[]
+    ,[jogadores,slot.genero,slot.catsAlvo,diaNome,slot.data,slot.hora,metricas]);
   const vagasAbertas=4-preConf.length;
   const candSemPreConf=candidatos.filter(j=>!preConf.includes(j.id));
   const slotOk=slot.data&&slot.hora&&slot.quadra&&candidatos.length>0&&
@@ -989,6 +1019,17 @@ function FrequenciaView({fireToast}){
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               <CatPill cat={j.categoria}/>
               <GenBadge g={j.genero}/>
+              {j.taxa_confirmacao!=null&&<span style={{fontSize:10,fontWeight:700,
+                background:j.taxa_confirmacao>=70?C.greenBg:j.taxa_confirmacao>=40?C.yellowBg:C.redBg,
+                color:j.taxa_confirmacao>=70?C.green:j.taxa_confirmacao>=40?C.yellow:C.red,
+                border:`1px solid ${j.taxa_confirmacao>=70?C.greenBor:j.taxa_confirmacao>=40?C.yellowBor:C.redBor}`,
+                borderRadius:99,padding:"2px 8px"}}>
+                {j.taxa_confirmacao}% conf.
+              </span>}
+              {j.onda_media_confirmacao&&<span style={{fontSize:10,color:C.textMut,fontWeight:600,
+                background:C.bg,border:`1px solid ${C.border}`,borderRadius:99,padding:"2px 8px"}}>
+                ⚡ onda {j.onda_media_confirmacao} média
+              </span>}
             </div>
           </div>
           <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
@@ -1020,6 +1061,7 @@ export default function App(){
   const [tela,setTela]=useState("jogos");
   const [jogadores,setJogadores]=useState([]);
   const [loadingJogadores,setLoadingJogadores]=useState(true);
+  const [metricas,setMetricas]=useState({}); // {jogadorId: metrica}
 
   // Carrega jogos ativos do Supabase ao iniciar
   const [jogosAtivos,setJogosAtivosRaw]=useState([]);
@@ -1150,12 +1192,22 @@ export default function App(){
   },[jogosAtivos]);
 
 
-  // Carrega jogadores do Supabase
+  // Carrega jogadores e métricas do Supabase
   useEffect(()=>{
     setLoadingJogadores(true);
-    db.getJogadores()
-      .then(data=>{ setJogadores(data.map(fromDB)); setLoadingJogadores(false); })
-      .catch(()=>{ fireToast("Erro ao carregar jogadores",false); setLoadingJogadores(false); });
+    Promise.all([
+      db.getJogadores(),
+      supaFetch("metricas_jogadores?select=*"),
+    ]).then(([jogs, mets])=>{
+      setJogadores((jogs||[]).map(fromDB));
+      // Converte array de métricas em objeto indexado por id
+      if(Array.isArray(mets)){
+        const metObj={};
+        mets.forEach(m=>{ metObj[m.id]=m; });
+        setMetricas(metObj);
+      }
+      setLoadingJogadores(false);
+    }).catch(()=>{ setLoadingJogadores(false); });
   },[]);
 
   // ── TIMER INDEPENDENTE POR JOGO (apenas visual) ──────────────────────────
@@ -1521,6 +1573,7 @@ export default function App(){
         {/* form novo jogo */}
         {mostrarForm&&<FormNovoJogo
           jogadores={jogadores}
+          metricas={metricas}
           remetente={remetente}
           onDispararCascata={dispararCascata}
           onCancelar={()=>setMostrarForm(false)}/>}
