@@ -1332,22 +1332,39 @@ export default function App(){
     }
   }
 
-  function cancelarJogo(jogoId, avisarConfirmados){
+  async function cancelarJogo(jogoId, avisarConfirmados){
     const jg=jogosAtivos.find(j=>j.id===jogoId);
     if(!jg) return;
-    // Remove da lista de ativos
-    removerJogo(jogoId);
+
+    if(avisarConfirmados){
+      const conf=jg.fila.filter(j=>j.status==="confirmado");
+      const msg=`Olá! Infelizmente o jogo de ${jg.slot.hora} na ${jg.slot.quadra} do dia ${fmtData(jg.slot.data)} foi cancelado. Pedimos desculpas pelo inconveniente! 🎾\n\n_${remetente}_`;
+      // Busca telefones frescos do banco para garantir
+      try{
+        const ids=conf.map(j=>j.id).join(",");
+        if(ids){
+          const jogadoresDb=await supaFetch(`jogadores?select=id,telefone&id=in.(${ids})`);
+          if(Array.isArray(jogadoresDb)){
+            for(const j of jogadoresDb){
+              await enviarWhatsApp(j.telefone, msg).catch(()=>{});
+            }
+          }
+        }
+      }catch(e){
+        // fallback: usa tel da fila
+        for(const j of conf){
+          if(j.tel) await enviarWhatsApp(j.tel, msg).catch(()=>{});
+        }
+      }
+    }
+
     // Atualiza status no banco
     if(jg.dbId){
       supaFetch(`jogos?id=eq.${jg.dbId}`,{method:"PATCH",prefer:"return=minimal",
         body:JSON.stringify({status:"cancelado"})}).catch(()=>{});
     }
-    // Envia aviso para confirmados se solicitado
-    if(avisarConfirmados){
-      const conf=jg.fila.filter(j=>j.status==="confirmado");
-      const msg=`Olá! Infelizmente o jogo de ${jg.slot.hora} na ${jg.slot.quadra} do dia ${fmtData(jg.slot.data)} foi cancelado. Pedimos desculpas pelo inconveniente! 🎾\n\n_${remetente}_`;
-      conf.forEach(j=>enviarWhatsApp(j.tel,msg).catch(()=>{}));
-    }
+
+    removerJogo(jogoId);
     setCancelarModal(null);
     fireToast("Jogo cancelado!");
   }
