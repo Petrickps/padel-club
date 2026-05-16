@@ -988,29 +988,86 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
 
 // ─── FREQUÊNCIA VIEW ──────────────────────────────────────────────────────────
 function FrequenciaView({fireToast}){
+  const [periodo,setPeriodo]=useState("sempre"); // sempre | 30dias | 7dias
   const [dados,setDados]=useState([]);
   const [loading,setLoading]=useState(true);
 
   useEffect(()=>{
-    db.getFrequencia()
-      .then(d=>{ setDados(d||[]); setLoading(false); })
-      .catch(()=>{ fireToast("Erro ao carregar frequência",false); setLoading(false); });
-  },[]);
+    setLoading(true);
+    const hoje=new Date().toISOString().split("T")[0];
+    const d30=new Date(Date.now()-30*86400000).toISOString().split("T")[0];
+    const d7=new Date(Date.now()-7*86400000).toISOString().split("T")[0];
+
+    // Busca participações com filtro de data
+    async function carregar(){
+      try{
+        const jogadores=await supaFetch("jogadores?select=id,nome,categoria,genero&ativo=eq.true&order=nome.asc");
+        if(!Array.isArray(jogadores)) return;
+
+        const dataFiltro=periodo==="30dias"?d30:periodo==="7dias"?d7:null;
+        const partQuery=dataFiltro
+          ? `participacoes?select=jogador_id,resposta,onda,jogos(data)&jogos.data=gte.${dataFiltro}`
+          : `participacoes?select=jogador_id,resposta,onda,jogos(data)`;
+
+        const parts=await supaFetch(partQuery);
+
+        const resultado=jogadores.map(j=>{
+          const minhas=(Array.isArray(parts)?parts:[]).filter(p=>p.jogador_id===j.id&&(!dataFiltro||p.jogos?.data>=dataFiltro));
+          const conf=minhas.filter(p=>p.resposta==="confirmado");
+          const recus=minhas.filter(p=>p.resposta==="recusou");
+          const expir=minhas.filter(p=>p.resposta==="expirado");
+          const total=conf.length+recus.length+expir.length;
+          const taxa=total>0?Math.round(conf.length*100/total):null;
+          const ondaMedia=conf.length>0?Math.round(conf.reduce((s,p)=>s+(p.onda||1),0)/conf.length*10)/10:null;
+          const datas=conf.map(p=>p.jogos?.data).filter(Boolean).sort();
+          const ultimoJogo=datas.length>0?datas[datas.length-1]:null;
+          return{...j,jogos_confirmados:conf.length,jogos_recusados:recus.length,
+            total_convites:total,taxa_confirmacao:taxa,onda_media_confirmacao:ondaMedia,ultimo_jogo:ultimoJogo};
+        }).sort((a,b)=>(b.jogos_confirmados||0)-(a.jogos_confirmados||0));
+
+        setDados(resultado);
+        setLoading(false);
+      }catch(e){
+        fireToast("Erro ao carregar frequência",false);
+        setLoading(false);
+      }
+    }
+    carregar();
+  },[periodo]);
+
+  const labels={sempre:"Desde sempre",30:"Últimos 30 dias",7:"Últimos 7 dias"};
 
   return <div style={{animation:"fadeIn .3s ease"}}>
-    <div style={{marginBottom:18}}>
-      <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Frequência de Jogadores</h2>
-      <p style={{fontSize:12,color:C.textSub}}>Histórico de participação registrado no banco de dados</p>
+    <div style={{marginBottom:16}}>
+      <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:4}}>Frequência de Jogadores</h2>
+      <p style={{fontSize:12,color:C.textSub}}>Histórico de participação com aprendizado automático</p>
     </div>
+
+    {/* filtros de período */}
+    <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+      {[{v:"sempre",l:"📊 Desde sempre"},{v:"30dias",l:"📅 Últimos 30 dias"},{v:"7dias",l:"🗓️ Últimos 7 dias"}].map(({v,l})=>(
+        <button key={v} onClick={()=>setPeriodo(v)} style={{
+          background:periodo===v?C.blue+"18":"#fff",
+          border:`1.5px solid ${periodo===v?C.blue:C.border}`,
+          color:periodo===v?C.blue:C.textSub,
+          borderRadius:99,padding:"6px 16px",cursor:"pointer",
+          fontFamily:"inherit",fontWeight:600,fontSize:12,transition:"all .15s"}}>
+          {l}
+        </button>
+      ))}
+    </div>
+
     {loading?<div style={{textAlign:"center",padding:"40px 0",color:C.textMut}}>
       <div style={{fontSize:30,marginBottom:10}}>⏳</div>
       <div>Carregando...</div>
-    </div>:dados.length===0?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
+    </div>:dados.filter(d=>d.total_convites>0).length===0
+    ?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
       <div style={{fontSize:40,marginBottom:12}}>📊</div>
-      <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>Nenhum dado ainda</div>
-      <div style={{fontSize:13}}>Os dados aparecem após fechar o primeiro jogo</div>
-    </div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {dados.map((j,i)=>(
+      <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>Nenhum dado no período</div>
+      <div style={{fontSize:13}}>Os dados aparecem após fechar jogos neste período</div>
+    </div>
+    :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {dados.filter(d=>d.total_convites>0).map((j,i)=>(
         <div key={j.id} style={{background:"#fff",border:`1px solid ${C.border}`,
           borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
           <div style={{fontWeight:700,fontSize:13,color:C.textMut,width:24,textAlign:"right",flexShrink:0}}>#{i+1}</div>
@@ -1046,7 +1103,9 @@ function FrequenciaView({fireToast}){
               <div style={{fontSize:10,color:C.textMut}}>Convites</div>
             </div>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:13,fontWeight:700,color:C.textSub}}>{j.ultimo_jogo?new Date(j.ultimo_jogo).toLocaleDateString("pt-BR"):"—"}</div>
+              <div style={{fontSize:13,fontWeight:700,color:C.textSub}}>
+                {j.ultimo_jogo?new Date(j.ultimo_jogo+"T12:00:00").toLocaleDateString("pt-BR"):"—"}
+              </div>
               <div style={{fontSize:10,color:C.textMut}}>Último jogo</div>
             </div>
           </div>
