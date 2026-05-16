@@ -1625,6 +1625,8 @@ export default function App(){
     fireToast("🎾 Jogo confirmado e mensagens enviadas!");
     tocarSom("fechado");
   }
+
+  async function cancelarJogo(jogoId, avisarConfirmados){
     const jg=jogosAtivos.find(j=>j.id===jogoId);
     if(!jg) return;
 
