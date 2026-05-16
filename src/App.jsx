@@ -86,6 +86,7 @@ const db = {
         categoria: j.cat, categoria2: j.cat2||null,
         dias_pref: j.dias, horas_pref: j.hrs,
         aceita_misto: j.aceitaMisto, ativo: true,
+        indisponivel_ate: j.indisponivelAte||null,
       }),
     });
   },
@@ -171,6 +172,7 @@ function fromDB(j) {
     g: j.genero, cat: j.categoria, cat2: j.categoria2||null,
     dias: j.dias_pref || [], hrs: j.horas_pref || [],
     aceitaMisto: j.aceita_misto || false,
+    indisponivelAte: j.indisponivel_ate || null,
   };
 }
 
@@ -244,7 +246,10 @@ function scoreJogador(j, dn, hr, metricas={}) {
 }
 
 function filtrarCandidatos(jogadores,genero,catsAlvo,dn,hr,metricas={}){
+  const hoje=new Date().toISOString().split("T")[0];
   return jogadores.filter(j=>{
+    // Exclui indisponíveis
+    if(j.indisponivelAte&&j.indisponivelAte>=hoje) return false;
     if(genero==="M"&&j.g!=="M")return false;
     if(genero==="F"&&j.g!=="F")return false;
     if(genero==="Misto"&&!j.aceitaMisto)return false;
@@ -964,7 +969,7 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
   const [gf,setGf]=useState("M");
   const [showForm,setShowForm]=useState(false);
   const DIAS=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
-  const F0={nome:"",g:"M",cats:["4ª"],tel:"",dias:[],hrs:[],aceitaMisto:false};
+  const F0={nome:"",g:"M",cats:["4ª"],tel:"",dias:[],hrs:[],aceitaMisto:false,indisponivelAte:""};
   const [form,setForm]=useState(F0);
   const inp={background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,
     padding:"9px 12px",color:C.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"};
@@ -997,7 +1002,8 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
   function abrirEdicao(j){
     setForm({
       nome:j.nome, g:j.g, cats:[j.cat,...(j.cat2?[j.cat2]:[])],
-      tel:j.tel, dias:j.dias, hrs:j.hrs, aceitaMisto:j.aceitaMisto
+      tel:j.tel, dias:j.dias, hrs:j.hrs, aceitaMisto:j.aceitaMisto,
+      indisponivelAte:j.indisponivelAte||""
     });
     setEditando(j.id);
     setShowForm(true);
@@ -1010,12 +1016,13 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
     db.updateJogador(editando,{
       nome:form.nome, telefone:form.tel, genero:form.g,
       categoria:form.cats[0], categoria2:form.cats[1]||null,
-      dias_pref:form.dias, horas_pref:form.hrs, aceita_misto:form.aceitaMisto
+      dias_pref:form.dias, horas_pref:form.hrs, aceita_misto:form.aceitaMisto,
+      indisponivel_ate:form.indisponivelAte||null,
     }).then(()=>{
-      setJogadores(p=>p.map(j=>j.id===editando?atualizado:j));
+      setJogadores(p=>p.map(j=>j.id===editando?{...atualizado,indisponivelAte:form.indisponivelAte||null}:j));
       fireToast(`${form.nome} atualizado! ✅`);
     }).catch(()=>{
-      setJogadores(p=>p.map(j=>j.id===editando?atualizado:j));
+      setJogadores(p=>p.map(j=>j.id===editando?{...atualizado,indisponivelAte:form.indisponivelAte||null}:j));
       fireToast(`${form.nome} atualizado localmente ✅`);
     });
     setShowForm(false);setEditando(null);setForm(F0);
@@ -1050,6 +1057,11 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
             <span style={{fontWeight:600,fontSize:13,color:C.text}}>{j.nome}</span>
             {j.aceitaMisto&&<span style={{fontSize:9,color:"#92400E",fontWeight:600,background:"#FEF3C7",
               border:"1px solid #FCD34D",borderRadius:99,padding:"1px 6px"}}>⚤ misto</span>}
+            {j.indisponivelAte&&j.indisponivelAte>=new Date().toISOString().split("T")[0]&&
+              <span style={{fontSize:9,color:C.red,fontWeight:600,background:C.redBg,
+                border:`1px solid ${C.redBor}`,borderRadius:99,padding:"1px 6px"}}>
+                🚫 até {new Date(j.indisponivelAte+"T12:00:00").toLocaleDateString("pt-BR")}
+              </span>}
           </div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             <CatPill cat={j.cat}/>
@@ -1116,6 +1128,27 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
             <div><div style={{fontSize:13,fontWeight:600,color:form.aceitaMisto?C.yellow:C.textSub}}>⚤ Aceita jogos mistos</div>
               <div style={{fontSize:11,color:C.textMut}}>Será convidado para partidas mistas</div></div>
           </label>
+
+          {/* Indisponibilidade temporária */}
+          <div style={{background:form.indisponivelAte?C.redBg:"#fff",
+            border:`1.5px solid ${form.indisponivelAte?C.redBor:C.border}`,
+            borderRadius:10,padding:"12px"}}>
+            <div style={{fontSize:13,fontWeight:600,color:form.indisponivelAte?C.red:C.textSub,marginBottom:6}}>
+              🚫 Indisponível até
+            </div>
+            <div style={{fontSize:11,color:C.textMut,marginBottom:8}}>
+              O jogador não receberá convites até esta data
+            </div>
+            <input type="date" style={{...inp,width:"100%"}}
+              value={form.indisponivelAte||""}
+              onChange={e=>setForm(f=>({...f,indisponivelAte:e.target.value}))}/>
+            {form.indisponivelAte&&<button onClick={()=>setForm(f=>({...f,indisponivelAte:""}))}
+              style={{marginTop:6,background:"#fff",border:`1px solid ${C.redBor}`,color:C.red,
+                borderRadius:8,padding:"4px 12px",cursor:"pointer",fontSize:11,
+                fontFamily:"inherit",fontWeight:600}}>
+              ✕ Remover indisponibilidade
+            </button>}
+          </div>
           <div style={{display:"flex",gap:8}}>
             <Btn onClick={editando?salvarEdicao:salvar} style={{flex:1}}>
               {editando?"Salvar alterações":"Salvar"}
