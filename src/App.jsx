@@ -192,7 +192,7 @@ const CAT_BG  = {"2ª":"#FFE8E8","3ª":"#FFF0DC","4ª":"#FFFACC","5ª":"#DCFAEC"
 const CAT_FG  = {"2ª":"#B91C1C","3ª":"#92400E","4ª":"#78620A","5ª":"#065F46","6ª":"#1E40AF","Iniciante":"#6B21A8"};
 const CAT_BOR = {"2ª":"#FCA5A5","3ª":"#FCD34D","4ª":"#FDE68A","5ª":"#6EE7B7","6ª":"#93C5FD","Iniciante":"#D8B4FE"};
 
-const C = {
+const LIGHT = {
   bg:"#F7F8FA", surface:"#FFFFFF", border:"#E2E8F0",
   text:"#1A202C", textSub:"#64748B", textMut:"#94A3B8",
   green:"#059669", greenBg:"#ECFDF5", greenBor:"#6EE7B7",
@@ -202,7 +202,20 @@ const C = {
   orange:"#EA580C",orangeBg:"#FFF7ED",
 };
 
-const JOGADORES_INIT = []; // jogadores carregados do Supabase
+const DARK = {
+  bg:"#0F172A", surface:"#1E293B", border:"#334155",
+  text:"#F1F5F9", textSub:"#94A3B8", textMut:"#64748B",
+  green:"#34D399", greenBg:"#064E3B", greenBor:"#065F46",
+  red:"#F87171",  redBg:"#450A0A",  redBor:"#7F1D1D",
+  yellow:"#FCD34D",yellowBg:"#422006",yellowBor:"#92400E",
+  blue:"#60A5FA", blueBg:"#1E3A5F",
+  orange:"#FB923C",orangeBg:"#431407",
+};
+
+// Tema global — será atualizado pelo App
+let C = {...LIGHT};
+
+const JOGADORES_INIT = [];
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 function fmtData(iso){if(!iso)return"";const[y,m,d]=iso.split("-");return`${d}/${m}/${y}`;}
@@ -689,12 +702,14 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
       display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
       <div style={{flex:1}}>
         <div style={{fontWeight:700,fontSize:13,color:C.text}}>Onda {jogo.ondaAtual} em andamento</div>
-        <div style={{fontSize:11,color:C.textSub}}>{pend.length} aguardando · {conf.length}/4 confirmados · {fila.length} na fila</div>
+        <div style={{fontSize:11,color:C.textSub}}>{pend.length} aguardando · {conf.length}/4 confirmados · {fila.length} na fila
+          <span style={{marginLeft:8,color:C.textMut}}>· 🔄 auto 30s</span>
+        </div>
       </div>
       <button onClick={onAtualizar} style={{background:"#fff",border:`1px solid ${C.greenBor}`,
         borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:11,
         color:C.green,fontFamily:"inherit",fontWeight:700}}>
-        🔄 Atualizar
+        🔄 Agora
       </button>
       <div style={{fontSize:22,fontWeight:700,color:C.green}}>{conf.length}<span style={{color:C.textMut,fontSize:16}}>/4</span></div>
     </div>}
@@ -1385,7 +1400,19 @@ export default function App(){
     carregarJogosAtivos();
   },[]);
 
-  const [mostrarForm,setMostrarForm]=useState(false);
+  const [darkMode,setDarkMode]=useState(()=>localStorage.getItem("darkMode")==="true");
+
+  // Atualiza C global quando darkMode muda
+  useMemo(()=>{
+    Object.assign(C, darkMode?DARK:LIGHT);
+  },[darkMode]);
+
+  function toggleDark(){
+    setDarkMode(d=>{
+      localStorage.setItem("darkMode",String(!d));
+      return !d;
+    });
+  }
   const [historico,setHistorico]=useState([]);
   const [msgModal,setMsgModal]=useState(null);
   const [alertaOp,setAlertaOp]=useState(null);
@@ -1477,7 +1504,7 @@ export default function App(){
           console.log("polling error:", e);
         }
       }
-    },5000);
+    },30000); // 30 segundos — atualização automática
     return()=>clearInterval(interval);
   },[jogosAtivos]);
 
@@ -1818,7 +1845,8 @@ export default function App(){
   const fechados=jogosAtivos.filter(j=>j.status==="fechado").length;
 
   return <div style={{minHeight:"100vh",background:C.bg,color:C.text,
-    fontFamily:"system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
+    fontFamily:"system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    transition:"background .3s,color .3s"}}>
     <style>{`
       *{box-sizing:border-box;margin:0;padding:0}
       ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
@@ -1830,7 +1858,7 @@ export default function App(){
     `}</style>
 
     {/* NAV */}
-    <div style={{background:"#fff",borderBottom:`1px solid ${C.border}`,padding:"0 16px",
+    <div style={{background:darkMode?"#1E293B":"#fff",borderBottom:`1px solid ${C.border}`,padding:"0 16px",
       position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
       <div style={{maxWidth:900,margin:"0 auto",display:"flex",alignItems:"center",
         justifyContent:"space-between",height:52}}>
@@ -1846,6 +1874,13 @@ export default function App(){
             fontFamily:"inherit",marginRight:4}}>
             📲 Instalar
           </button>}
+          {/* Botão modo escuro */}
+          <button onClick={toggleDark} title={darkMode?"Modo claro":"Modo escuro"} style={{
+            background:"none",border:`1px solid ${C.border}`,borderRadius:8,
+            padding:"5px 8px",cursor:"pointer",fontSize:16,marginRight:4,
+            color:C.textSub,transition:"all .2s"}}>
+            {darkMode?"☀️":"🌙"}
+          </button>
           {[
             {id:"jogos",    icon:"🎾", txt:`Jogos${jogosAtivos.length?` (${jogosAtivos.length})`:""}`},
             {id:"historico",icon:"📋", txt:`Histórico${historico.length?` (${historico.length})`:""}`},
