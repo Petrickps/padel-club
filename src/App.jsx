@@ -1388,6 +1388,7 @@ export default function App(){
   },[]);
 
   const [historico,setHistorico]=useState([]);
+  const [mostrarForm,setMostrarForm]=useState(false);
   const [msgModal,setMsgModal]=useState(null);
   const [alertaOp,setAlertaOp]=useState(null);
   const [cancelarModal,setCancelarModal]=useState(null);
