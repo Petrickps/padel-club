@@ -547,6 +547,86 @@ function JogoCard({jogo,isAtivo,onClick,onFechar}){
   </div>;
 }
 
+// ─── MODAL CONFIRMAR MANUALMENTE ─────────────────────────────────────────────
+function ModalConfirmarManual({jogo,jogadores,onConfirmar,onClose,remetente}){
+  const jaConf=jogo.fila.filter(j=>j.status==="confirmado").map(j=>j.id);
+  const [selecionados,setSelecionados]=useState(jaConf);
+
+  function toggleJogador(id){
+    setSelecionados(prev=>
+      prev.includes(id)?prev.filter(x=>x!==id):prev.length<4?[...prev,id]:prev
+    );
+  }
+
+  // Filtra jogadores da fila do jogo
+  const jogadoresFila=jogo.fila.filter(j=>j.status!=="excluido_cat");
+
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",
+    zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,
+      width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto",
+      boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
+      <div style={{fontSize:28,textAlign:"center",marginBottom:8}}>✅</div>
+      <h3 style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center",marginBottom:4}}>
+        Confirmar jogo manualmente
+      </h3>
+      <p style={{fontSize:12,color:C.textSub,textAlign:"center",marginBottom:16}}>
+        Selecione os 4 jogadores que vão participar.<br/>
+        A mensagem de confirmação será enviada para todos.
+      </p>
+
+      {/* info do slot */}
+      <div style={{background:C.bg,borderRadius:10,padding:"10px 14px",marginBottom:16,
+        fontSize:12,color:C.textSub,textAlign:"center"}}>
+        {diaSemana(jogo.slot.data)}, {fmtData(jogo.slot.data)} · {jogo.slot.hora} · {jogo.slot.quadra}
+      </div>
+
+      {/* lista de jogadores */}
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+        {jogadoresFila.map(j=>{
+          const sel=selecionados.includes(j.id);
+          const bloqueado=!sel&&selecionados.length>=4;
+          return <div key={j.id} onClick={()=>!bloqueado&&toggleJogador(j.id)}
+            style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+              borderRadius:10,border:`1.5px solid ${sel?C.green:C.border}`,
+              background:sel?C.greenBg:"#fff",cursor:bloqueado?"not-allowed":"pointer",
+              opacity:bloqueado?.4:1,transition:"all .15s"}}>
+            <Avatar nome={j.nome} size={32} g={j.g} highlight={sel}/>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:600,fontSize:13,color:C.text}}>{j.nome}</div>
+              <div style={{display:"flex",gap:4}}><CatPill cat={j.cat}/><GenBadge g={j.g}/></div>
+            </div>
+            {sel&&<span style={{color:C.green,fontWeight:700,fontSize:18}}>✓</span>}
+          </div>;
+        })}
+      </div>
+
+      {/* contador */}
+      <div style={{textAlign:"center",marginBottom:16,fontSize:13,
+        color:selecionados.length===4?C.green:C.textSub,fontWeight:600}}>
+        {selecionados.length}/4 selecionados
+        {selecionados.length===4&&" — pronto para confirmar! 🎾"}
+      </div>
+
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>onConfirmar(selecionados)}
+          disabled={selecionados.length!==4}
+          style={{flex:1,background:selecionados.length===4?C.green:"#E2E8F0",
+            color:selecionados.length===4?"#fff":C.textMut,border:"none",
+            borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,
+            cursor:selecionados.length===4?"pointer":"not-allowed",fontFamily:"inherit"}}>
+          ✅ Confirmar e avisar jogadores
+        </button>
+        <button onClick={onClose} style={{background:"#fff",border:`1.5px solid ${C.border}`,
+          color:C.textSub,borderRadius:10,padding:"12px 16px",fontSize:13,
+          cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
 // ─── MODAL CANCELAR JOGO ─────────────────────────────────────────────────────
 function ModalCancelar({jogo,onCancelar,onClose}){
   const conf=jogo.fila.filter(j=>j.status==="confirmado");
@@ -588,7 +668,7 @@ function ModalCancelar({jogo,onCancelar,onClose}){
 }
 
 // ─── CASCATA PANEL ────────────────────────────────────────────────────────────
-function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJogo}){
+function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJogo,onConfirmarManual}){
   const conf=jogo.fila.filter(j=>j.status==="confirmado");
   const pend=jogo.fila.filter(j=>j.status==="pendente");
   const recus=jogo.fila.filter(j=>j.status==="recusou"||j.status==="expirado");
@@ -614,8 +694,13 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
       <div style={{fontSize:22,fontWeight:700,color:C.green}}>{conf.length}<span style={{color:C.textMut,fontSize:16}}>/4</span></div>
     </div>}
 
-    {/* botão cancelar jogo */}
-    {!fechado&&<div style={{marginBottom:12,textAlign:"right"}}>
+    {/* botões cancelar e confirmar manualmente */}
+    {!fechado&&<div style={{marginBottom:12,display:"flex",gap:8,justifyContent:"flex-end"}}>
+      <button onClick={onConfirmarManual} style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
+        color:C.green,borderRadius:8,padding:"6px 14px",cursor:"pointer",
+        fontSize:11,fontWeight:700,fontFamily:"inherit"}}>
+        ✅ Confirmar manualmente
+      </button>
       <button onClick={onCancelarJogo} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
         color:C.red,borderRadius:8,padding:"6px 14px",cursor:"pointer",
         fontSize:11,fontWeight:700,fontFamily:"inherit"}}>
@@ -1224,7 +1309,8 @@ export default function App(){
   const [historico,setHistorico]=useState([]);
   const [msgModal,setMsgModal]=useState(null);
   const [alertaOp,setAlertaOp]=useState(null);
-  const [cancelarModal,setCancelarModal]=useState(null); // jogo a cancelar
+  const [cancelarModal,setCancelarModal]=useState(null);
+  const [confirmarManualModal,setConfirmarManualModal]=useState(null); // jogo a cancelar
   const [toast,setToast]=useState(null);
   const [remetente,setRemetente]=useState(()=>localStorage.getItem("remetente")||"Gabi da Profit");
   const timersRef=useRef({});
@@ -1508,7 +1594,37 @@ export default function App(){
     }
   }
 
-  async function cancelarJogo(jogoId, avisarConfirmados){
+  async function confirmarManualJogo(jogoId, ids){
+    const jg=jogosAtivos.find(j=>j.id===jogoId);
+    if(!jg||ids.length!==4) return;
+
+    // Busca telefones do banco
+    const jogadoresConf=await supaFetch(`jogadores?select=id,nome,telefone&id=in.(${ids.join(",")})`).catch(()=>[]);
+    const lista=Array.isArray(jogadoresConf)?jogadoresConf:[];
+
+    // Monta mensagem de confirmação
+    const msg=`🎾 *JOGO CONFIRMADO!*\n\n📅 ${diaSemana(jg.slot.data)}, ${fmtData(jg.slot.data)}\n🕐 ${jg.slot.hora}\n🏟️ ${jg.slot.quadra}\n\n${lista.map(j=>`• ${j.nome}`).join("\n")}`;
+
+    // Envia para todos os 4
+    for(const j of lista){
+      await enviarWhatsApp(j.telefone, msg).catch(()=>{});
+    }
+
+    // Atualiza fila no frontend
+    const novaFila=jg.fila.map(f=>({
+      ...f,
+      status: ids.includes(f.id)?"confirmado":f.status==="confirmado"?"recusou":f.status
+    }));
+    const conf=novaFila.filter(f=>f.status==="confirmado");
+    const{sc,d1,d2}=melhorDuplas(conf);
+    setJogosAtivos(prev=>prev.map(j=>j.id===jogoId
+      ?{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc}:j
+    ));
+
+    setConfirmarManualModal(null);
+    fireToast("🎾 Jogo confirmado e mensagens enviadas!");
+    tocarSom("fechado");
+  }
     const jg=jogosAtivos.find(j=>j.id===jogoId);
     if(!jg) return;
 
@@ -1749,7 +1865,8 @@ export default function App(){
             </div>
             <CascataPanel jogo={jg} onResponder={responder} onMsg={setMsgModal} remetente={remetente}
               onAtualizar={()=>atualizarJogo(jg.id)}
-              onCancelarJogo={()=>setCancelarModal(jg)}/>
+              onCancelarJogo={()=>setCancelarModal(jg)}
+              onConfirmarManual={()=>setConfirmarManualModal(jg)}/>
           </div>;
         })()}
       </div>}
@@ -1815,6 +1932,12 @@ export default function App(){
     {cancelarModal&&<ModalCancelar jogo={cancelarModal}
       onClose={()=>setCancelarModal(null)}
       onCancelar={(avisar)=>cancelarJogo(cancelarModal.id,avisar)}/>}
+    {confirmarManualModal&&<ModalConfirmarManual
+      jogo={confirmarManualModal}
+      jogadores={jogadores}
+      remetente={remetente}
+      onClose={()=>setConfirmarManualModal(null)}
+      onConfirmar={(ids)=>confirmarManualJogo(confirmarManualModal.id,ids)}/>}
     {toast&&<div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",
       background:toast.ok?"#fff":C.redBg,border:`1.5px solid ${toast.ok?C.greenBor:C.redBor}`,
       borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:700,
