@@ -23,6 +23,87 @@ async function dbPatch(table: string, query: string, data: any) {
   });
 }
 
+const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") || "";
+
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+
+async function interpretarComClaude(texto: string): Promise<"sim" | "nao" | "desconhecido"> {
+  if (!ANTHROPIC_KEY) return "desconhecido";
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 10,
+        messages: [{
+          role: "user",
+          content: `Uma pessoa recebeu um convite para jogar padel e respondeu: "${texto}"\nEssa resposta indica SIM (quer jogar) ou NAO (não quer jogar)? Responda apenas SIM ou NAO.`
+        }]
+      })
+    });
+    const data = await res.json();
+    const r = data.content?.[0]?.text?.trim().toUpperCase();
+    console.log("CLAUDE:", r);
+    if (r === "SIM") return "sim";
+    if (r === "NAO" || r === "NÃO") return "nao";
+    return "desconhecido";
+  } catch(e) {
+    console.log("Claude error:", e);
+    return "desconhecido";
+  }
+}
+
+async function transcreverAudio(msgId: string, telefone: string): Promise<string> {
+  if (!OPENAI_KEY) return "";
+  try {
+    // Tenta buscar mídia via Evolution API
+    const res = await fetch(`${EVO_URL}/chat/getBase64FromMediaMessage/${EVO_INSTANCE}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "apikey": EVO_KEY },
+      body: JSON.stringify({
+        message: { key: { id: msgId, remoteJid: `${telefone}@s.whatsapp.net`, fromMe: false } },
+        convertToMp4: false,
+      }),
+    });
+    const data = await res.json();
+    console.log("MEDIA RESPONSE keys:", Object.keys(data||{}).join(","));
+
+    const base64 = data.base64 || data.mediaBase64 || data.media || "";
+    const mimetype = data.mimetype || data.mediaType || "audio/ogg; codecs=opus";
+    console.log("BASE64 length:", base64.length, "MIMETYPE:", mimetype);
+    if (!base64) return "";
+
+    const clean = base64.replace(/^data:[^;]+;base64,/, "");
+    const binary = atob(clean);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const ext = mimetype.includes("mp4") ? "mp4" : mimetype.includes("webm") ? "webm" : "ogg";
+    const blob = new Blob([bytes], { type: mimetype });
+
+    const formData = new FormData();
+    formData.append("file", blob, `audio.${ext}`);
+    formData.append("model", "whisper-1");
+    formData.append("language", "pt");
+
+    const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${OPENAI_KEY}` },
+      body: formData,
+    });
+    const whisperData = await whisperRes.json();
+    console.log("WHISPER FULL:", JSON.stringify(whisperData).slice(0,300));
+    return whisperData.text || "";
+  } catch(e) {
+    console.log("Audio error:", e);
+    return "";
+  }
+}
+
 async function enviarMsg(telefone: string, mensagem: string) {
   const num = telefone.replace(/\D/g, "");
   const numFmt = num.startsWith("55") ? num : `55${num}`;
@@ -75,7 +156,11 @@ Deno.serve(async (req) => {
   catch { return new Response("bad json", { status: 200 }); }
 
   const event = body.event || "";
-  if (event !== "messages.upsert") return new Response("ignored", { status: 200 });
+  const eventosValidos = ["messages.upsert","messages.update","message.received","messages.set"];
+  if (!eventosValidos.some(e => event === e || event.includes("message"))) {
+    console.log("Evento ignorado:", event);
+    return new Response("ignored", { status: 200 });
+  }
 
   const data = body.data || {};
   const key = data.key || {};
@@ -86,10 +171,25 @@ Deno.serve(async (req) => {
 
   const telefone = remoteJid.replace("@s.whatsapp.net","").replace("@c.us","");
   const message = data.message || {};
-  const texto = message.conversation || message.extendedTextMessage?.text || "";
+  let texto = message.conversation || message.extendedTextMessage?.text || "";
+  let ehAudio = false;
+  const msgId = key.id || "";
 
-  console.log("TEL:", telefone, "TEXTO:", texto);
-  if (!texto) return new Response("no text", { status: 200 });
+  if (!texto && (message.audioMessage || message.pttMessage)) {
+    ehAudio = true;
+    console.log("AUDIO detectado, msgId:", msgId);
+  }
+
+  console.log("TEL:", telefone, "TEXTO:", texto, "EH AUDIO:", ehAudio);
+
+  // Transcreve áudio se necessário
+  let textoFinal = texto;
+  if (ehAudio && msgId) {
+    textoFinal = await transcreverAudio(msgId, telefone);
+    console.log("TRANSCRICAO:", textoFinal);
+  }
+
+  if (!textoFinal) return new Response("no text", { status: 200 });
 
   // Busca jogador com todas as variações de telefone
   const vars = variacoesTel(telefone);
@@ -113,8 +213,13 @@ Deno.serve(async (req) => {
   const participacao = participacoes[0];
   const jogo = participacao.jogos;
 
-  const resultado = reconhecer(texto);
-  console.log("RESULTADO:", resultado, "para:", texto);
+  let resultado = reconhecer(textoFinal);
+  console.log("RESULTADO:", resultado, "para:", textoFinal);
+
+  if (resultado === "desconhecido") {
+    resultado = await interpretarComClaude(textoFinal);
+    console.log("RESULTADO POS CLAUDE:", resultado);
+  }
 
   if (resultado === "desconhecido") {
     await enviarMsg(telefone, `Oi ${jogador.nome.split(" ")[0]}! Não entendi 😅\n\nResponda *SIM* ou *NÃO* 🎾`);
@@ -130,7 +235,7 @@ Deno.serve(async (req) => {
 
   if (resultado === "nao") {
     await enviarMsg(telefone,
-      `Oi, ${jogador.nome.split(" ")[0]}! Tudo bem 😊\n\nObrigada pela resposta! Te aviso no próximo jogo 🎾\n\n_${REMETENTE}_`
+      `Oi, ${jogador.nome.split(" ")[0]}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo 🎾\n\n_${REMETENTE}_`
     );
   }
 

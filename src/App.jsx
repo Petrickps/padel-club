@@ -482,8 +482,48 @@ function JogoCard({jogo,isAtivo,onClick,onFechar}){
   </div>;
 }
 
+// ─── MODAL CANCELAR JOGO ─────────────────────────────────────────────────────
+function ModalCancelar({jogo,onCancelar,onClose}){
+  const conf=jogo.fila.filter(j=>j.status==="confirmado");
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",
+    zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,
+      width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
+      <div style={{fontSize:28,textAlign:"center",marginBottom:12}}>⚠️</div>
+      <h3 style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center",marginBottom:8}}>
+        Cancelar jogo?
+      </h3>
+      <div style={{fontSize:13,color:C.textSub,textAlign:"center",marginBottom:20,lineHeight:1.6}}>
+        {jogo.slot.hora} · {jogo.slot.quadra}<br/>
+        {diaSemana(jogo.slot.data)}, {fmtData(jogo.slot.data)}
+        {conf.length>0&&<><br/><span style={{color:C.text,fontWeight:600}}>{conf.length} confirmado(s)</span></>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {conf.length>0&&<button onClick={()=>onCancelar(true)} style={{
+          background:C.redBg,border:`1.5px solid ${C.red}`,color:C.red,
+          borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,
+          cursor:"pointer",fontFamily:"inherit"}}>
+          ❌ Cancelar e avisar confirmados
+        </button>}
+        <button onClick={()=>onCancelar(false)} style={{
+          background:"#fff",border:`1.5px solid ${C.border}`,color:C.textSub,
+          borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,
+          cursor:"pointer",fontFamily:"inherit"}}>
+          🚫 Cancelar silenciosamente
+        </button>
+        <button onClick={onClose} style={{
+          background:"transparent",border:"none",color:C.textMut,
+          borderRadius:10,padding:"8px 0",fontSize:12,
+          cursor:"pointer",fontFamily:"inherit"}}>
+          Voltar
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
 // ─── CASCATA PANEL ────────────────────────────────────────────────────────────
-function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar}){
+function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJogo}){
   const conf=jogo.fila.filter(j=>j.status==="confirmado");
   const pend=jogo.fila.filter(j=>j.status==="pendente");
   const recus=jogo.fila.filter(j=>j.status==="recusou"||j.status==="expirado");
@@ -505,6 +545,11 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar}){
         borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:11,
         color:C.green,fontFamily:"inherit",fontWeight:700}}>
         🔄 Atualizar
+      </button>
+      <button onClick={onCancelarJogo} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
+        borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:11,
+        color:C.red,fontFamily:"inherit",fontWeight:700}}>
+        ✕ Cancelar jogo
       </button>
       <div style={{fontSize:22,fontWeight:700,color:C.green}}>{conf.length}<span style={{color:C.textMut,fontSize:16}}>/4</span></div>
     </div>}
@@ -1039,6 +1084,7 @@ export default function App(){
   const [historico,setHistorico]=useState([]);
   const [msgModal,setMsgModal]=useState(null);
   const [alertaOp,setAlertaOp]=useState(null);
+  const [cancelarModal,setCancelarModal]=useState(null); // jogo a cancelar
   const [toast,setToast]=useState(null);
   const [remetente,setRemetente]=useState(()=>localStorage.getItem("remetente")||"Gabi da Profit");
   const timersRef=useRef({});
@@ -1282,7 +1328,25 @@ export default function App(){
     }
   }
 
-  function dispararCascata({slot,jaConf,fila}){
+  function cancelarJogo(jogoId, avisarConfirmados){
+    const jg=jogosAtivos.find(j=>j.id===jogoId);
+    if(!jg) return;
+    // Remove da lista de ativos
+    removerJogo(jogoId);
+    // Atualiza status no banco
+    if(jg.dbId){
+      supaFetch(`jogos?id=eq.${jg.dbId}`,{method:"PATCH",prefer:"return=minimal",
+        body:JSON.stringify({status:"cancelado"})}).catch(()=>{});
+    }
+    // Envia aviso para confirmados se solicitado
+    if(avisarConfirmados){
+      const conf=jg.fila.filter(j=>j.status==="confirmado");
+      const msg=`Olá! Infelizmente o jogo de ${jg.slot.hora} na ${jg.slot.quadra} do dia ${fmtData(jg.slot.data)} foi cancelado. Pedimos desculpas pelo inconveniente! 🎾\n\n_${remetente}_`;
+      conf.forEach(j=>enviarWhatsApp(j.tel,msg).catch(()=>{}));
+    }
+    setCancelarModal(null);
+    fireToast("Jogo cancelado!");
+  }
     const id=Date.now();
     const todasEntradas=[...jaConf,...fila];
     const novoJogo={
@@ -1477,7 +1541,9 @@ export default function App(){
                   cursor:"pointer",color:C.textMut,fontSize:18,padding:"2px 4px"}}>✕</button>
               </div>
             </div>
-            <CascataPanel jogo={jg} onResponder={responder} onMsg={setMsgModal} remetente={remetente} onAtualizar={()=>atualizarJogo(jg.id)}/>
+            <CascataPanel jogo={jg} onResponder={responder} onMsg={setMsgModal} remetente={remetente}
+              onAtualizar={()=>atualizarJogo(jg.id)}
+              onCancelarJogo={()=>setCancelarModal(jg)}/>
           </div>;
         })()}
       </div>}
@@ -1540,6 +1606,9 @@ export default function App(){
     {msgModal&&<MsgModal {...msgModal} onClose={()=>setMsgModal(null)} fireToast={fireToast}/>}
     {alertaOp&&<AlertaOperador alerta={alertaOp} onClose={()=>setAlertaOp(null)}
       onNovoSlot={()=>{setAlertaOp(null);setMostrarForm(true);setTela("jogos");}}/>}
+    {cancelarModal&&<ModalCancelar jogo={cancelarModal}
+      onClose={()=>setCancelarModal(null)}
+      onCancelar={(avisar)=>cancelarJogo(cancelarModal.id,avisar)}/>}
     {toast&&<div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",
       background:toast.ok?"#fff":C.redBg,border:`1.5px solid ${toast.ok?C.greenBor:C.redBor}`,
       borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:700,
