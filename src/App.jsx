@@ -186,7 +186,7 @@ const CATS_M   = ["2ª","3ª","4ª","5ª","6ª","Iniciante"];
 const CATS_F   = ["3ª","4ª","5ª","6ª","Iniciante"];
 const CATS_ALL = ["2ª","3ª","4ª","5ª","6ª","Iniciante"];
 const NIVEL    = {"2ª":90,"3ª":75,"4ª":60,"5ª":45,"6ª":30,"Iniciante":15};
-const TIMER_MAX = 20; // mantido apenas para o TimerRing visual, sem efeito na lógica
+const TIMER_MAX = 15 * 60; // 15 minutos em segundos
 
 const CAT_BG  = {"2ª":"#FFE8E8","3ª":"#FFF0DC","4ª":"#FFFACC","5ª":"#DCFAEC","6ª":"#DCF0FF","Iniciante":"#F0DCFF"};
 const CAT_FG  = {"2ª":"#B91C1C","3ª":"#92400E","4ª":"#78620A","5ª":"#065F46","6ª":"#1E40AF","Iniciante":"#6B21A8"};
@@ -363,6 +363,9 @@ function SLabel({label,color}){
 function TimerRing({seg,total,size=54}){
   const r=(size-6)/2,circ=2*Math.PI*r,pct=Math.max(0,seg/total);
   const col=pct>.5?C.green:pct>.25?C.yellow:C.red;
+  const mins=Math.floor(seg/60);
+  const secs=seg%60;
+  const label=mins>0?`${mins}m`:fmtTempo(seg);
   return <div style={{position:"relative",width:size,height:size,flexShrink:0}}>
     <svg width={size} height={size} style={{transform:"rotate(-90deg)"}}>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.border} strokeWidth={4}/>
@@ -372,7 +375,7 @@ function TimerRing({seg,total,size=54}){
     </svg>
     <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
       alignItems:"center",justifyContent:"center"}}>
-      <span style={{fontSize:11,fontWeight:700,color:col,lineHeight:1}}>{fmtTempo(seg)}</span>
+      <span style={{fontSize:10,fontWeight:700,color:col,lineHeight:1}}>{label}</span>
       <span style={{fontSize:7,color:C.textMut,marginTop:1}}>ONDA</span>
     </div>
   </div>;
@@ -1396,6 +1399,8 @@ export default function App(){
   const [toast,setToast]=useState(null);
   const [remetente,setRemetente]=useState(()=>localStorage.getItem("remetente")||"Gabi da Profit");
   const timersRef=useRef({});
+  const remetenteRef=useRef(remetente);
+  useEffect(()=>{ remetenteRef.current=remetente; },[remetente]);
 
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
 
@@ -1502,15 +1507,39 @@ export default function App(){
     }).catch(()=>{ setLoadingJogadores(false); });
   },[]);
 
-  // ── TIMER INDEPENDENTE POR JOGO (apenas visual) ──────────────────────────
+  // ── TIMER INDEPENDENTE POR JOGO — dispara próxima onda ao zerar ──────────
   useEffect(()=>{
     jogosAtivos.forEach(j=>{
       if(j.status==="ativo"&&!timersRef.current[j.id]){
         timersRef.current[j.id]=setInterval(()=>{
           setJogosAtivos(prev=>prev.map(jg=>{
             if(jg.id!==j.id||jg.status!=="ativo") return jg;
-            // Timer só conta para visual — não expira jogadores
-            if(jg.timer-1<=0) return{...jg,timer:0};
+            if(jg.timer-1<=0){
+              // Timer zerou — processa próxima onda
+              const conf=jg.fila.filter(x=>x.status==="confirmado");
+              if(conf.length===4) return jg;
+              // Expira pendentes e passa para próxima onda
+              const novaFila=jg.fila.map(f=>
+                f.status==="pendente"?{...f,status:"expirado"}:f
+              );
+              const aguard=novaFila.filter(f=>f.status==="aguardando");
+              if(!aguard.length) return{...jg,fila:novaFila,timer:TIMER_MAX,status:"sem_candidatos"};
+              const prox=jg.ondaAtual+1;
+              const tam=jg.tamanhoOnda||8;
+              const n=Math.min(tam,(4-conf.length)*2,aguard.length);
+              const paraConvidar=aguard.slice(0,n);
+              const filaAtualizada=novaFila.map(f=>
+                paraConvidar.find(p=>p.id===f.id)?{...f,status:"pendente",ondaEnviado:prox}:f
+              );
+              // Envia convites automaticamente
+              setTimeout(()=>{
+                enviarParaLista(paraConvidar, f=>buildMsgConvite(f,jg.slot,conf,remetenteRef.current))
+                  .then(({ok})=>fireToast(`⚡ Onda ${prox}: ${ok} convite(s) enviado(s)!`))
+                  .catch(()=>{});
+              },500);
+              fireToast(`⏰ Onda ${prox} iniciada automaticamente!`);
+              return{...jg,fila:filaAtualizada,ondaAtual:prox,timer:TIMER_MAX};
+            }
             return{...jg,timer:jg.timer-1};
           }));
         },1000);
