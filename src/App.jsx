@@ -566,7 +566,7 @@ function ModalConfirmarManual({jogo,jogadores,onConfirmar,onClose,remetente}){
     );
   }
 
-  // Filtra jogadores da fila do jogo
+  // Inclui todos os jogadores do jogo (incluindo pré-confirmados e fila)
   const jogadoresFila=jogo.fila.filter(j=>j.status!=="excluido_cat");
 
   return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",
@@ -760,7 +760,15 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
 
     {/* listas */}
     {conf.length>0&&<SLabel label={`✅ Confirmados (${conf.length}/4)`} color={C.green}/>}
-    {conf.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}
+    {conf.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+      onNao={()=>{
+        onResponder(jogo.id,j.id,"nao");
+        setTimeout(()=>onMsg({
+          titulo:`Agradecimento — ${j.nome.split(" ")[0]}`,
+          texto:buildMsgAgradecimento(j,remetente),
+          tel:j.tel
+        }),200);
+      }}/>)}
     {pend.length>0&&<SLabel label={`⏳ Aguardando — Onda ${jogo.ondaAtual}`} color={C.yellow}/>}
     {pend.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
       onSim={()=>onResponder(jogo.id,j.id,"sim")}
@@ -773,11 +781,14 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
         }),200);
       }}/>)}
     {recus.length>0&&<SLabel label={`❌ Recusaram / Sem resposta (${recus.length})`} color={C.textMut}/>}
-    {recus.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}
+    {recus.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+      onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}
     {fila.length>0&&<SLabel label={`🔜 Na fila (${fila.length})`} color={C.textMut}/>}
-    {fila.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}
+    {fila.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+      onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}
     {excl.length>0&&<><SLabel label="🚫 Excluídos — categoria diferente" color={C.textMut}/>
-      {excl.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}</>}
+      {excl.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+        onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}</>}
     {inter.length>0&&<><SLabel label="🙋 Interessados após fechamento" color="#7C3AED"/>
       {inter.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}</>}
   </div>;
@@ -1400,7 +1411,9 @@ export default function App(){
   const [remetente,setRemetente]=useState(()=>localStorage.getItem("remetente")||"Gabi da Profit");
   const timersRef=useRef({});
   const remetenteRef=useRef(remetente);
+  const jogosAtivosRef=useRef(jogosAtivos);
   useEffect(()=>{ remetenteRef.current=remetente; },[remetente]);
+  useEffect(()=>{ jogosAtivosRef.current=jogosAtivos; },[jogosAtivos]);
 
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
 
