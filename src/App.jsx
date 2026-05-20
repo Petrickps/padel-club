@@ -245,7 +245,32 @@ function scoreJogador(j, dn, hr, metricas={}) {
   return score;
 }
 
-function filtrarCandidatos(jogadores,genero,catsAlvo,dn,hr,metricas={}){
+// Mapeamento de categorias compatíveis para jogos mistos
+// Mulher 3ª → Homem 4ª; Mulher 4ª → Homem 5ª; Mulher 5ª/6ª → Homem 6ª/Iniciante
+const CATS_MISTO: Record<string,string[]> = {
+  "3ª": ["4ª"],
+  "4ª": ["5ª"],
+  "5ª": ["6ª","Iniciante"],
+  "6ª": ["6ª","Iniciante"],
+};
+
+function catCompatMisto(catF: string, catM: string): boolean {
+  return (CATS_MISTO[catF]||[]).includes(catM);
+}
+
+function filtrarCandidatosMisto(jogadores: any[], catRef: string, generoRef: string): any[] {
+  // catRef e generoRef são da primeira jogadora/jogador que aceitou
+  return jogadores.filter(j => {
+    if (j.g === generoRef) return true; // mesmo gênero sempre ok
+    if (!j.aceitaMisto) return false;
+    if (generoRef === "F") return catCompatMisto(catRef, j.cat);
+    if (generoRef === "M") {
+      // Homem buscando mulher: inverte a tabela
+      return Object.entries(CATS_MISTO).some(([catF, cats]) => catF === j.cat && cats.includes(catRef));
+    }
+    return false;
+  });
+}
   const hoje=new Date().toISOString().split("T")[0];
   return jogadores.filter(j=>{
     // Exclui indisponíveis
@@ -983,6 +1008,7 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
 // ─── JOGADORES VIEW ───────────────────────────────────────────────────────────
 function JogadoresView({jogadores,setJogadores,fireToast}){
   const [gf,setGf]=useState("M");
+  const [buscaJog,setBuscaJog]=useState("");
   const [showForm,setShowForm]=useState(false);
   const DIAS=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
   const F0={nome:"",g:"M",cats:["4ª"],tel:"",dias:[],hrs:[],aceitaMisto:false,indisponivelAte:""};
@@ -1000,8 +1026,12 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
   function salvar(){
     if(!form.nome.trim()||!form.tel.trim()){fireToast("Preencha nome e telefone",false);return;}
     if(form.cats.length===0){fireToast("Selecione ao menos uma categoria",false);return;}
+    // Fix 1: verifica telefone duplicado
+    const telLimpo=form.tel.replace(/\D/g,"");
+    const duplicado=jogadores.find(j=>j.tel.replace(/\D/g,"")===telLimpo);
+    if(duplicado){fireToast(`Telefone já cadastrado para ${duplicado.nome}!`,false);return;}
     const novoLocal={...form,id:`temp-${Date.now()}`,cat:form.cats[0]};
-    db.addJogador({...form,cat:form.cats[0],cat2:form.cats[1]||null})
+    db.addJogador({...form,cat:form.cats[0],cat2:form.cats[1]||null,indisponivel_ate:form.indisponivelAte||null})
       .then(data=>{
         const salvo=fromDB(data[0]);
         setJogadores(p=>[...p,salvo]);
@@ -1059,13 +1089,29 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
       </div>
       <Btn onClick={()=>{setEditando(null);setForm(F0);setShowForm(true);}}>+ Novo</Btn>
     </div>
-    <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+    <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
       {["M","F"].map(g=><Chip key={g} active={gf===g} onClick={()=>setGf(g)} color={C.blue}>
         {g==="M"?"♂ Masculino":"♀ Feminino"} ({jogadores.filter(j=>j.g===g).length})
       </Chip>)}
     </div>
+
+    {/* Fix 3: Barra de pesquisa */}
+    <div style={{position:"relative",marginBottom:12}}>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}>🔍</span>
+      <input value={buscaJog} onChange={e=>setBuscaJog(e.target.value)}
+        placeholder="Buscar jogador por nome ou telefone..."
+        style={{width:"100%",padding:"9px 12px 9px 36px",borderRadius:10,
+          border:`1.5px solid ${buscaJog?C.blue:C.border}`,fontSize:13,
+          fontFamily:"inherit",color:C.text,outline:"none",background:"#fff",boxSizing:"border-box"}}/>
+      {buscaJog&&<button onClick={()=>setBuscaJog("")} style={{position:"absolute",right:10,
+        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",
+        cursor:"pointer",color:C.textMut,fontSize:16}}>✕</button>}
+    </div>
+
     <div style={{display:"flex",flexDirection:"column",gap:6}}>
-      {jogadores.filter(j=>j.g===gf).map(j=><div key={j.id} style={{display:"flex",alignItems:"center",
+      {jogadores.filter(j=>gf?j.g===gf:true)
+        .filter(j=>!buscaJog||j.nome.toLowerCase().includes(buscaJog.toLowerCase())||j.tel.includes(buscaJog))
+        .map(j=><div key={j.id} style={{display:"flex",alignItems:"center",
         gap:10,padding:"10px 12px",borderRadius:10,background:"#fff",border:`1px solid ${C.border}`,flexWrap:"wrap"}}>
         <Avatar nome={j.nome} size={32} g={j.g}/>
         <div style={{flex:1,minWidth:80}}>
@@ -1338,19 +1384,33 @@ export default function App(){
   const [loadingJogadores,setLoadingJogadores]=useState(true);
   const [metricas,setMetricas]=useState({}); // {jogadorId: metrica}
 
-  // Carrega jogos ativos do Supabase ao iniciar
-  const [jogosAtivos,setJogosAtivosRaw]=useState([]);
-  const [jogoAbertoId,setJogoAbertoId]=useState(null);
+  const [jogosAtivos,setJogosAtivosRaw]=useState(()=>{
+    try{
+      // Tenta recuperar da sessionStorage primeiro (persiste no F5)
+      const session=sessionStorage.getItem("jogosAtivos");
+      if(session) return JSON.parse(session);
+      return [];
+    }catch{ return []; }
+  });
+  const [jogoAbertoId,setJogoAbertoId]=useState(()=>{
+    try{ return JSON.parse(sessionStorage.getItem("jogoAbertoId")||"null"); }
+    catch{ return null; }
+  });
 
   function setJogosAtivos(fn){
     setJogosAtivosRaw(prev=>{
       const next=typeof fn==="function"?fn(prev):fn;
+      try{ sessionStorage.setItem("jogosAtivos",JSON.stringify(next)); }catch{}
       return next;
     });
   }
 
-  useEffect(()=>{
-    // Carrega jogos ativos e seus jogadores do banco
+  function setJogoAbertoId(id){
+    setJogoAbertoIdRaw(id);
+    try{ sessionStorage.setItem("jogoAbertoId",JSON.stringify(id)); }catch{}
+  }
+
+  const [jogoAbertoIdRaw,setJogoAbertoIdRaw]=useState(jogoAbertoId);
     async function carregarJogosAtivos(){
       try{
         const jogosDb=await supaFetch("jogos?select=*&status=eq.ativo&order=created_at.desc");
