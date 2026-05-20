@@ -822,6 +822,7 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
 function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCancelar}){
   const [slot,setSlot]=useState({data:"",hora:"",quadra:"",genero:"Todos",catsAlvo:[]});
   const [preConf,setPreConf]=useState([]);
+  const [excluidos,setExcluidos]=useState([]);
   const [tamanhoOnda,setTamanhoOnda]=useState(8);
   const today=new Date().toISOString().split("T")[0];
   const diaNome=diaSemana(slot.data);
@@ -829,7 +830,7 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
     ?filtrarCandidatos(jogadores,slot.genero,slot.catsAlvo,diaNome,slot.hora,metricas):[]
     ,[jogadores,slot.genero,slot.catsAlvo,diaNome,slot.data,slot.hora,metricas]);
   const vagasAbertas=4-preConf.length;
-  const candSemPreConf=candidatos.filter(j=>!preConf.includes(j.id));
+  const candSemPreConf=candidatos.filter(j=>!preConf.includes(j.id)&&!excluidos.includes(j.id));
   const slotOk=slot.data&&slot.hora&&slot.quadra&&candidatos.length>0&&
     (preConf.length===4||candSemPreConf.length>=Math.max(1,vagasAbertas));
   const inp={background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,
@@ -840,9 +841,10 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
 
   function disparar(){
     const idsPreConf=new Set(preConf);
+    const idsExcl=new Set(excluidos);
     const jaConf=candidatos.filter(j=>idsPreConf.has(j.id))
       .map(j=>({...j,status:"confirmado",ondaEnviado:null,respostaEm:"Pré-confirmado"}));
-    const fila=candidatos.filter(j=>!idsPreConf.has(j.id))
+    const fila=candidatos.filter(j=>!idsPreConf.has(j.id)&&!idsExcl.has(j.id))
       .map((j,i)=>({...j,ordem:i,status:i<tamanhoOnda?"pendente":"aguardando",ondaEnviado:i<tamanhoOnda?1:null,respostaEm:null}));
     onDispararCascata({slot,jaConf,fila,preConf,tamanhoOnda});
   }
@@ -922,32 +924,48 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
       </div>
     </div>
 
-    {/* ranking + pré-confirmar */}
+    {/* ranking + pré-confirmar + excluir */}
     {candidatos.length>0&&<div style={{marginBottom:12}}>
       <div style={{fontSize:10,color:C.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>
         Ranking — {candidatos.length} candidato(s)
         {preConf.length>0&&<span style={{color:C.green,marginLeft:8}}>· {preConf.length} pré-confirmado(s)</span>}
+        {excluidos.length>0&&<span style={{color:C.red,marginLeft:8}}>· {excluidos.length} excluído(s)</span>}
       </div>
-      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:280,overflowY:"auto"}}>
-        {candidatos.slice(0,16).map((j,i)=>{
+      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:320,overflowY:"auto"}}>
+        {candidatos.slice(0,24).map((j,i)=>{
           const isPre=preConf.includes(j.id);
+          const isExcl=excluidos.includes(j.id);
           return <div key={j.id} style={{display:"flex",alignItems:"center",gap:8,
-            padding:"7px 10px",borderRadius:9,background:"#fff",
-            border:`1.5px solid ${isPre?C.greenBor:C.border}`}}>
+            padding:"7px 10px",borderRadius:9,
+            background:isExcl?C.redBg:isPre?C.greenBg:"#fff",
+            border:`1.5px solid ${isExcl?C.redBor:isPre?C.greenBor:C.border}`,
+            opacity:isExcl?.6:1}}>
             <div style={{fontSize:10,color:C.textMut,fontWeight:700,width:16,textAlign:"right",flexShrink:0}}>#{i+1}</div>
             <Avatar nome={j.nome} size={28} g={j.g} highlight={isPre}/>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:12,fontWeight:600,color:C.text}}>{j.nome}</div>
               <div style={{display:"flex",gap:4,alignItems:"center"}}><CatPill cat={j.cat} size={9}/><ScoreDot score={j.score}/></div>
             </div>
-            <button onClick={()=>setPreConf(p=>p.includes(j.id)?p.filter(x=>x!==j.id):p.length<3?[...p,j.id]:p)}
-              style={{fontSize:10,fontWeight:700,borderRadius:99,padding:"3px 9px",
+            <div style={{display:"flex",gap:4}}>
+              {!isExcl&&<button onClick={()=>{
+                if(isPre) setPreConf(p=>p.filter(x=>x!==j.id));
+                else if(preConf.length<3) setPreConf(p=>[...p,j.id]);
+              }} style={{fontSize:10,fontWeight:700,borderRadius:99,padding:"3px 9px",
                 cursor:(!isPre&&preConf.length>=3)?"not-allowed":"pointer",
                 border:`1.5px solid ${isPre?C.green:C.border}`,
                 background:isPre?C.greenBg:"#fff",color:isPre?C.green:C.textSub,
                 fontFamily:"inherit",whiteSpace:"nowrap",transition:"all .15s"}}>
-              {isPre?"✅ Conf.":"+ Pré-conf."}
-            </button>
+                {isPre?"✅ Conf.":"+ Conf."}
+              </button>}
+              {!isPre&&<button onClick={()=>setExcluidos(p=>p.includes(j.id)?p.filter(x=>x!==j.id):[...p,j.id])}
+                style={{fontSize:10,fontWeight:700,borderRadius:99,padding:"3px 9px",
+                  cursor:"pointer",
+                  border:`1.5px solid ${isExcl?C.red:C.border}`,
+                  background:isExcl?C.redBg:"#fff",color:isExcl?C.red:C.textMut,
+                  fontFamily:"inherit",whiteSpace:"nowrap",transition:"all .15s"}}>
+                {isExcl?"✕ Excluído":"🚫 Excluir"}
+              </button>}
+            </div>
           </div>;
         })}
       </div>
@@ -966,6 +984,25 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
             fontSize:11,fontWeight:600,border:`1px solid ${C.greenBor}`}}>
             {j.nome.split(" ")[0]}
             <button onClick={()=>setPreConf(p=>p.filter(x=>x!==j.id))} style={{background:"none",
+              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>×</button>
+          </span>
+        ))}
+      </div>
+    </div>}
+
+    {/* resumo excluídos */}
+    {excluidos.length>0&&<div style={{background:C.redBg,border:`1px solid ${C.redBor}`,
+      borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+      <div style={{fontSize:11,color:C.red,fontWeight:700,marginBottom:6}}>
+        🚫 {excluidos.length} excluído(s) deste jogo
+      </div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {candidatos.filter(j=>excluidos.includes(j.id)).map(j=>(
+          <span key={j.id} style={{display:"inline-flex",alignItems:"center",gap:4,
+            background:"#fff",color:C.red,borderRadius:99,padding:"3px 10px",
+            fontSize:11,fontWeight:600,border:`1px solid ${C.redBor}`}}>
+            {j.nome.split(" ")[0]}
+            <button onClick={()=>setExcluidos(p=>p.filter(x=>x!==j.id))} style={{background:"none",
               border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>×</button>
           </span>
         ))}
