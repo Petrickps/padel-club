@@ -1391,7 +1391,7 @@ export default function App(){
       return [];
     }catch{ return []; }
   });
-  const [jogoAbertoId,setJogoAbertoId]=useState(()=>{
+  const [jogoAbertoId,setJogoAbertoIdState]=useState(()=>{
     try{ return JSON.parse(sessionStorage.getItem("jogoAbertoId")||"null"); }
     catch{ return null; }
   });
@@ -1405,11 +1405,9 @@ export default function App(){
   }
 
   function setJogoAbertoId(id){
-    setJogoAbertoIdRaw(id);
+    setJogoAbertoIdState(id);
     try{ sessionStorage.setItem("jogoAbertoId",JSON.stringify(id)); }catch{}
   }
-
-  const [jogoAbertoIdRaw,setJogoAbertoIdRaw]=useState(jogoAbertoId);
 
   useEffect(()=>{
     async function carregarJogosAtivos(){
