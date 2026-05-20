@@ -1410,6 +1410,8 @@ export default function App(){
   }
 
   const [jogoAbertoIdRaw,setJogoAbertoIdRaw]=useState(jogoAbertoId);
+
+  useEffect(()=>{
     async function carregarJogosAtivos(){
       try{
         const jogosDb=await supaFetch("jogos?select=*&status=eq.ativo&order=created_at.desc");
