@@ -246,26 +246,23 @@ function scoreJogador(j, dn, hr, metricas={}) {
 }
 
 // Mapeamento de categorias compatíveis para jogos mistos
-// Mulher 3ª → Homem 4ª; Mulher 4ª → Homem 5ª; Mulher 5ª/6ª → Homem 6ª/Iniciante
-const CATS_MISTO: Record<string,string[]> = {
+const CATS_MISTO = {
   "3ª": ["4ª"],
   "4ª": ["5ª"],
   "5ª": ["6ª","Iniciante"],
   "6ª": ["6ª","Iniciante"],
 };
 
-function catCompatMisto(catF: string, catM: string): boolean {
+function catCompatMisto(catF, catM) {
   return (CATS_MISTO[catF]||[]).includes(catM);
 }
 
-function filtrarCandidatosMisto(jogadores: any[], catRef: string, generoRef: string): any[] {
-  // catRef e generoRef são da primeira jogadora/jogador que aceitou
+function filtrarCandidatosMisto(jogadores, catRef, generoRef) {
   return jogadores.filter(j => {
-    if (j.g === generoRef) return true; // mesmo gênero sempre ok
+    if (j.g === generoRef) return true;
     if (!j.aceitaMisto) return false;
     if (generoRef === "F") return catCompatMisto(catRef, j.cat);
     if (generoRef === "M") {
-      // Homem buscando mulher: inverte a tabela
       return Object.entries(CATS_MISTO).some(([catF, cats]) => catF === j.cat && cats.includes(catRef));
     }
     return false;

@@ -117,10 +117,21 @@ async function enviarMsg(telefone: string, mensagem: string) {
 function reconhecer(texto: string): "sim" | "nao" | "desconhecido" {
   const t = texto.toLowerCase().trim()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const sim = ["sim","s","pode","topo","quero","vai","bora","claro","confirmo","ok","okay","vou","yes","positivo"];
-  const nao = ["nao","n","negativo","impossivel","cancelar","ocupado","ocupada","infelizmente","no","nope"];
-  if (sim.some(p => t === p || t.startsWith(p + " "))) return "sim";
-  if (nao.some(p => t === p || t.startsWith(p + " "))) return "nao";
+
+  const sim = ["sim","s","pode","topo","quero","vai","bora","claro","confirmo","ok","okay","vou","yes","positivo","tô dentro","to dentro","pode ser","com certeza","claro que sim","with pleasure","aceito","combinado","fechado","top","ótimo","otimo","perfeito","maravilha","show","beleza","certo","certo!","vai la","vai lá"];
+
+  const nao = [
+    "nao","n","negativo","impossivel","cancelar","ocupado","ocupada","infelizmente","no","nope",
+    "não consigo","nao consigo","não posso","nao posso","não vou","nao vou","não dá","nao da",
+    "não tenho","nao tenho","estarei","estaremos","visita","compromisso","viagem","viajando",
+    "trabalhando","trabalho","reuniao","reunião","médico","medico","dentista","ocupad",
+    "fora da cidade","sem condições","sem condicoes","indisponível","indisponivel","não será","nao sera",
+    "dessa vez não","dessa vez nao","não dessa","próxima","proxima vez","outra vez","outro dia",
+    "amanha nao","amanhã não","hoje nao","hoje não","semana que vem","não rola","nao rola"
+  ];
+
+  if (sim.some(p => t === p || t.startsWith(p + " ") || t.includes(p))) return "sim";
+  if (nao.some(p => t === p || t.startsWith(p) || t.includes(p))) return "nao";
   return "desconhecido";
 }
 
@@ -236,6 +247,12 @@ Deno.serve(async (req) => {
   if (resultado === "nao") {
     await enviarMsg(telefone,
       `Oi, ${jogador.nome.split(" ")[0]}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo 🎾\n\n_${REMETENTE}_`
+    );
+  }
+
+  if (resultado === "sim") {
+    await enviarMsg(telefone,
+      `Perfeito, ${jogador.nome.split(" ")[0]}! 🎾\n\nAssim que o jogo fechar, eu envio a confirmação com todos os detalhes!\n\n_${REMETENTE}_`
     );
   }
 
