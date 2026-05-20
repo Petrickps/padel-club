@@ -268,6 +268,8 @@ function filtrarCandidatosMisto(jogadores, catRef, generoRef) {
     return false;
   });
 }
+
+function filtrarCandidatos(jogadores,genero,catsAlvo,dn,hr,metricas={}){
   const hoje=new Date().toISOString().split("T")[0];
   return jogadores.filter(j=>{
     // Exclui indisponíveis
