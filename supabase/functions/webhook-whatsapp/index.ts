@@ -1,4 +1,4 @@
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+﻿const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const EVO_URL = Deno.env.get("EVO_URL") || "https://evolution-api-production-27b9.up.railway.app";
 const EVO_KEY = Deno.env.get("EVO_KEY") || "";
@@ -56,9 +56,9 @@ async function interpretarComClaude(texto: string): Promise<"sim" | "nao" | "des
           content: `Uma pessoa recebeu um convite para jogar padel e respondeu: "${texto}"
 
 Analise com cuidado. Considere:
-- Respostas NEGATIVAS incluem: qualquer desculpa, compromisso, indisponibilidade, "não posso", "outra vez", "próxima", "infelizmente", frases explicando por que não pode ir, qualquer forma de recusa educada
-- Respostas POSITIVAS são claras confirmações de participação: sim, topo, bora, pode, claro, vou
-- Em caso de dúvida, prefira NAO
+- Respostas NEGATIVAS incluem: qualquer desculpa, compromisso, indisponibilidade, "nÃ£o posso", "outra vez", "prÃ³xima", "infelizmente", frases explicando por que nÃ£o pode ir, qualquer forma de recusa educada
+- Respostas POSITIVAS sÃ£o claras confirmaÃ§Ãµes de participaÃ§Ã£o: sim, topo, bora, pode, claro, vou
+- Em caso de dÃºvida, prefira NAO
 
 Responda APENAS com SIM ou NAO, sem mais nada.`
         }]
@@ -68,7 +68,7 @@ Responda APENAS com SIM ou NAO, sem mais nada.`
     const r = data.content?.[0]?.text?.trim().toUpperCase();
     console.log("CLAUDE:", r);
     if (r === "SIM") return "sim";
-    if (r === "NAO" || r === "NÃO") return "nao";
+    if (r === "NAO" || r === "NÃƒO") return "nao";
     return "desconhecido";
   } catch(e) {
     console.log("Claude error:", e);
@@ -103,7 +103,7 @@ async function transcreverAudio(msgId: string, telefone: string): Promise<string
     formData.append("file", blob, `audio.${ext}`);
     formData.append("model", "whisper-1");
     formData.append("language", "pt");
-    formData.append("prompt", "Resposta para convite de padel. Pode ser: sim, não, não posso, topo, infelizmente não, pode ser, bora, não vou conseguir.");
+    formData.append("prompt", "Resposta para convite de padel. Pode ser: sim, nÃ£o, nÃ£o posso, topo, infelizmente nÃ£o, pode ser, bora, nÃ£o vou conseguir.");
 
     const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
@@ -138,9 +138,7 @@ function reconhecer(texto: string): "sim" | "nao" | "desconhecido" {
   ];
 
   const sim = [
-    "sim","pode","topo","quero","bora","claro","confirmo","okay",
-    "vou sim","yes","positivo","to dentro","com certeza","aceito","combinado",
-    "fechado","top","otimo","perfeito","maravilha","show","beleza","vai la",
+    "sim","topo","quero","bora","claro","confirmo","vou sim","yes","positivo","to dentro","com certeza","aceito","combinado","fechado","otimo","perfeito","maravilha","beleza","vai la","pode sim","vou conseguir","estarei la",
   ];
 
   // Verifica NAO primeiro
@@ -218,21 +216,21 @@ Deno.serve(async (req) => {
   if (!Array.isArray(jogadores) || !jogadores.length) return new Response("not found", { status: 200 });
   const jogador = jogadores[0];
 
-  // Busca participação pendente mais recente
+  // Busca participaÃ§Ã£o pendente mais recente
   const participacoes = await dbGet("participacoes",
     `select=id,jogo_id,created_at,jogos(id,data,hora,quadra,status)&jogador_id=eq.${jogador.id}&resposta=eq.pendente&order=created_at.desc&limit=1`
   );
   if (!Array.isArray(participacoes) || !participacoes.length) {
-    console.log("Nenhuma participação pendente para:", jogador.nome);
+    console.log("Nenhuma participaÃ§Ã£o pendente para:", jogador.nome);
     return new Response("no pending", { status: 200 });
   }
 
   const participacao = participacoes[0];
   const jogo = participacao.jogos;
 
-  // FIX 6: Se jogo já fechado, não processa
+  // FIX 6: Se jogo jÃ¡ fechado, nÃ£o processa
   if (jogo.status === "fechado") {
-    console.log("Jogo já fechado, ignorando resposta de:", jogador.nome);
+    console.log("Jogo jÃ¡ fechado, ignorando resposta de:", jogador.nome);
     await dbPatch("participacoes", `id=eq.${participacao.id}`, { resposta: "expirado" });
     return new Response("game closed", { status: 200 });
   }
@@ -246,7 +244,7 @@ Deno.serve(async (req) => {
   }
 
   if (resultado === "desconhecido") {
-    await enviarMsg(telefone, `Oi ${jogador.nome.split(" ")[0]}! Não entendi 😅\n\nResponda *SIM* ou *NÃO* 🎾`);
+    await enviarMsg(telefone, `Oi ${jogador.nome.split(" ")[0]}! NÃ£o entendi ðŸ˜…\n\nResponda *SIM* ou *NÃƒO* ðŸŽ¾`);
     return new Response("unclear", { status: 200 });
   }
 
@@ -256,10 +254,10 @@ Deno.serve(async (req) => {
   });
   console.log("PARTICIPACAO ATUALIZADA:", resultado);
 
-  // FIX 7: Agradecimento ao NÃO sempre
+  // FIX 7: Agradecimento ao NÃƒO sempre
   if (resultado === "nao") {
     await enviarMsg(telefone,
-      `Oi, ${jogador.nome.split(" ")[0]}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo 🎾\n\n_${REMETENTE}_`
+      `Oi, ${jogador.nome.split(" ")[0]}! Tudo bem ðŸ˜Š\n\nObrigado pela resposta! Te aviso do prÃ³ximo jogo ðŸŽ¾\n\n_${REMETENTE}_`
     );
     return new Response(JSON.stringify({ ok: true, resultado }), {
       headers: { "Content-Type": "application/json" },
@@ -268,11 +266,11 @@ Deno.serve(async (req) => {
 
   if (resultado === "sim") {
     await enviarMsg(telefone,
-      `Perfeito, ${jogador.nome.split(" ")[0]}! 🎾\n\nAssim que o jogo fechar, eu envio a confirmação com todos os detalhes!\n\n_${REMETENTE}_`
+      `Perfeito, ${jogador.nome.split(" ")[0]}! ðŸŽ¾\n\nAssim que o jogo fechar, eu envio a confirmaÃ§Ã£o com todos os detalhes!\n\n_${REMETENTE}_`
     );
   }
 
-  // FIX 5 e 6: Verificação dupla antes de fechar
+  // FIX 5 e 6: VerificaÃ§Ã£o dupla antes de fechar
   const confirmados = await dbGet("participacoes",
     `select=id,jogadores(nome,telefone)&jogo_id=eq.${jogo.id}&resposta=eq.confirmado`
   );
@@ -286,7 +284,7 @@ Deno.serve(async (req) => {
     console.log("JOGO FECHADO!");
 
     const dataFmt = jogo.data ? jogo.data.split("-").reverse().join("/") : "";
-    const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${dataFmt}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados.slice(0, 4).map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
+    const msg = `ðŸŽ¾ *JOGO CONFIRMADO!*\n\nðŸ“… ${dataFmt}\nðŸ• ${jogo.hora}\nðŸŸï¸ ${jogo.quadra}\n\n${confirmados.slice(0, 4).map((p: any) => `â€¢ ${p.jogadores.nome}`).join("\n")}`;
 
     const enviados = new Set<string>();
     for (const c of confirmados.slice(0, 4)) {
@@ -307,3 +305,4 @@ Deno.serve(async (req) => {
     headers: { "Content-Type": "application/json" },
   });
 });
+
