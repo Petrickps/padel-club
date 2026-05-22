@@ -278,7 +278,7 @@ function melhorDuplas(g4){
   },{sc:-1,d1:[],d2:[]});
 }
 
-function buildMsgConvite(j,slot,confirmados,remetente="Gabi da Profit"){
+function buildMsgConvite(j,slot,confirmados,remetente="Gabi"){
   const ds=diaSemana(slot.data);
   const nome=j.nome.split(" ")[0];
   let linhaConf="";
@@ -292,7 +292,7 @@ function buildMsgConvite(j,slot,confirmados,remetente="Gabi da Profit"){
   return `Oi, ${nome}! ${remetente} aqui, tudo bem?! ðŸŽ¾\n\nTenho um jogo para vocÃª:\n\nðŸ“… *${ds}, ${fmtData(slot.data)}*\nðŸ• *${slot.hora}*\nðŸŸï¸ *${slot.quadra}*${linhaConf}\n\nVocÃª topa? Responda *SIM* ou *NÃƒO* ðŸŽ¾`;
 }
 
-function buildMsgAgradecimento(j, remetente="Gabi da Profit"){
+function buildMsgAgradecimento(j, remetente="Gabi"){
   const nome=j.nome.split(" ")[0];
   return `Oi, ${nome}! Tudo bem ðŸ˜Š\n\nObrigado pela resposta! Te aviso do prÃ³ximo jogo ðŸŽ¾\n\n_${remetente}_`;
 }
@@ -1488,7 +1488,7 @@ export default function App(){
   const [cancelarModal,setCancelarModal]=useState(null);
   const [confirmarManualModal,setConfirmarManualModal]=useState(null); // jogo a cancelar
   const [toast,setToast]=useState(null);
-  const [remetente,setRemetente]=useState(()=>localStorage.getItem("remetente")||"Gabi da Profit");
+  const [remetente,setRemetente]=useState(()=>localStorage.getItem("remetente")||"Gabi");
   const timersRef=useRef({});
   const remetenteRef=useRef(remetente);
   const jogosAtivosRef=useRef(jogosAtivos);
@@ -2153,6 +2153,7 @@ export default function App(){
       boxShadow:"0 4px 20px rgba(0,0,0,.1)",animation:"fadeIn .25s ease"}}>{toast.msg}</div>}
   </div>;
 }
+
 
 
 
