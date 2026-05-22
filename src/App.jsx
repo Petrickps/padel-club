@@ -152,6 +152,7 @@ function fromDB(j) {
     dias: j.dias_pref || [], hrs: j.horas_pref || [],
     aceitaMisto: j.aceita_misto || false,
     indisponivelAte: j.indisponivel_ate || null,
+    ultimoConviteEm: j.ultimo_convite_em || null,
   };
 }
 
@@ -250,9 +251,13 @@ function filtrarCandidatosMisto(jogadores, catRef, generoRef) {
 
 function filtrarCandidatos(jogadores,genero,catsAlvo,dn,hr,metricas={}){
   const hoje=new Date().toISOString().split("T")[0];
+  const agora=Date.now();
+  const JANELA_4H=4*60*60*1000;
   return jogadores.filter(j=>{
     // Exclui indisponÃ­veis
     if(j.indisponivelAte&&j.indisponivelAte>=hoje) return false;
+    // Exclui quem recebeu convite nas Ãºltimas 4 horas
+    if(j.ultimoConviteEm&&(agora-new Date(j.ultimoConviteEm).getTime())<JANELA_4H) return false;
     if(genero==="M"&&j.g!=="M")return false;
     if(genero==="F"&&j.g!=="F")return false;
     if(genero==="Misto"&&!j.aceitaMisto)return false;
@@ -2148,5 +2153,6 @@ export default function App(){
       boxShadow:"0 4px 20px rgba(0,0,0,.1)",animation:"fadeIn .25s ease"}}>{toast.msg}</div>}
   </div>;
 }
+
 
 

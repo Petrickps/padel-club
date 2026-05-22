@@ -7,6 +7,8 @@ const REMETENTE = Deno.env.get("REMETENTE") || "Gabi da Profit";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") || "";
 
+const JANELA_CONVITE_MS = 4 * 60 * 60 * 1000; // 4 horas
+
 async function dbGet(table: string, query: string) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
     headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
@@ -143,9 +145,7 @@ function reconhecer(texto: string): "sim" | "nao" | "desconhecido" {
 
   // Verifica NAO primeiro
   if (nao.some(p => t === p || t.startsWith(p) || t.includes(p))) return "nao";
-  // SIM apenas em palavras exatas ou início claro
   if (sim.some(p => t === p || t === `${p}!` || t === `${p}.` || t.startsWith(`${p} `) || t.startsWith(`${p},`))) return "sim";
-  // "ok" e "s" só se for a mensagem inteira
   if (t === "ok" || t === "s" || t === "vai") return "sim";
 
   return "desconhecido";
@@ -214,7 +214,7 @@ Deno.serve(async (req) => {
 
   const vars = variacoesTel(telefone);
   const orQuery = vars.map(v => `telefone.eq.${v}`).join(",");
-  const jogadores = await dbGet("jogadores", `select=id,nome,telefone&or=(${orQuery})&ativo=eq.true`);
+  const jogadores = await dbGet("jogadores", `select=id,nome,telefone,ultimo_convite_em&or=(${orQuery})&ativo=eq.true`);
   if (!Array.isArray(jogadores) || !jogadores.length) return new Response("not found", { status: 200 });
   const jogador = jogadores[0];
 
@@ -288,7 +288,6 @@ Deno.serve(async (req) => {
     const dataFmt = jogo.data ? jogo.data.split("-").reverse().join("/") : "";
     const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${dataFmt}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados.slice(0, 4).map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
 
-    // Envia sem duplicatas
     const enviados = new Set<string>();
     for (const c of confirmados.slice(0, 4)) {
       const tel = c.jogadores.telefone;
@@ -298,7 +297,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Expira pendentes restantes
     await dbPatch("participacoes",
       `jogo_id=eq.${jogo.id}&resposta=eq.pendente`,
       { resposta: "expirado" }
