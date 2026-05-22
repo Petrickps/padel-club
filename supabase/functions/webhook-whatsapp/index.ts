@@ -3,11 +3,11 @@ const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const EVO_URL = Deno.env.get("EVO_URL") || "https://evolution-api-production-27b9.up.railway.app";
 const EVO_KEY = Deno.env.get("EVO_KEY") || "";
 const EVO_INSTANCE = Deno.env.get("EVO_INSTANCE") || "profit1";
-const REMETENTE = Deno.env.get("REMETENTE") || "Gabi da Profit";
+const REMETENTE = Deno.env.get("REMETENTE") || "Gabi";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") || "";
 
-const JANELA_CONVITE_MS = 4 * 60 * 60 * 1000; // 4 horas
+const JANELA_CONVITE_MS = 4 * 60 * 60 * 1000;
 
 async function dbGet(table: string, query: string) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
@@ -56,8 +56,8 @@ async function interpretarComClaude(texto: string): Promise<"sim" | "nao" | "des
           content: `Uma pessoa recebeu um convite para jogar padel e respondeu: "${texto}"
 
 Analise com cuidado. Considere:
-- Respostas NEGATIVAS incluem: qualquer desculpa, compromisso, indisponibilidade, "não posso", "outra vez", "próxima", "infelizmente", frases explicando por que não pode ir, qualquer forma de recusa educada
-- Respostas POSITIVAS são claras confirmações de participação: sim, topo, bora, pode, claro, vou
+- Respostas NEGATIVAS incluem: qualquer desculpa, compromisso, indisponibilidade, "não posso", "outra vez", "próxima", "infelizmente", frases explicando por que não pode ir, qualquer forma de recusa educada, cumprimentos sem confirmação como "opa", "oi", "olá"
+- Respostas POSITIVAS são claras confirmações de participação: sim, topo, bora, pode sim, claro, vou
 - Em caso de dúvida, prefira NAO
 
 Responda APENAS com SIM ou NAO, sem mais nada.`
@@ -123,32 +123,36 @@ function reconhecer(texto: string): "sim" | "nao" | "desconhecido" {
   const t = texto.toLowerCase().trim()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
+  // NAO verificado PRIMEIRO para evitar falsos positivos
   const nao = [
     "nao","negativo","impossivel","cancelar","ocupado","ocupada","infelizmente",
     "nope","nao consigo","nao posso","nao vou","nao da","nao tenho",
     "estarei","compromisso","viagem","viajando","trabalhando","trabalho",
     "reuniao","medico","dentista","fora da cidade","sem condicoes","indisponivel",
-    "nao sera","dessa vez nao","proxima vez","outra vez","outro dia","amanha nao",
-    "hoje nao","semana que vem","nao rola","nao vou conseguir","nao consigo ir",
-    "nao da pra mim","nao tem como","to fora","to de viagem","nao vou poder",
-    "essa semana nao","nesse dia nao","nesse horario nao","nao posso ir",
+    "nao sera","dessa vez nao","proxima vez","outra vez","outro dia",
+    "amanha nao","hoje nao","semana que vem","nao rola","nao vou conseguir",
+    "nao consigo ir","nao da pra mim","nao tem como","to fora","to de viagem",
+    "nao vou poder","essa semana nao","nesse dia nao","nao posso ir",
     "nao vai ser possivel","nao estou disponivel","nao vou estar","nao estarei",
     "obrigado mas nao","obrigada mas nao","lamento","sinto muito","que pena",
     "nao consigo dessa vez","dessa vez nao da","nao pode",
   ];
 
+  // SIM apenas palavras inequivocas
   const sim = [
     "sim","topo","quero","bora","claro","confirmo",
     "vou sim","yes","positivo","to dentro","com certeza","aceito","combinado",
-    "fechado","otimo","perfeito","maravilha","beleza","vai la","pode sim",
-    "vou conseguir","consigo ir","estarei la","estarei lá",
+    "fechado","otimo","perfeito","maravilha","beleza","vai la",
+    "pode sim","vou conseguir","estarei la","estarei la",
   ];
 
   // Verifica NAO primeiro
   if (nao.some(p => t === p || t.startsWith(p) || t.includes(p))) return "nao";
-  // SIM apenas com match exato — evita "opa", "ok", "top" soltos
+
+  // SIM apenas com match exato ou inicio claro
   if (sim.some(p => t === p || t === `${p}!` || t === `${p}.` || t.startsWith(`${p} `) || t.startsWith(`${p},`))) return "sim";
-  // Apenas "s" sozinho vale como sim
+
+  // "s" sozinho vale como sim
   if (t === "s") return "sim";
 
   return "desconhecido";
@@ -218,24 +222,27 @@ Deno.serve(async (req) => {
   const vars = variacoesTel(telefone);
   const orQuery = vars.map(v => `telefone.eq.${v}`).join(",");
   const jogadores = await dbGet("jogadores", `select=id,nome,telefone,ultimo_convite_em&or=(${orQuery})&ativo=eq.true`);
-  if (!Array.isArray(jogadores) || !jogadores.length) return new Response("not found", { status: 200 });
+  if (!Array.isArray(jogadores) || !jogadores.length) {
+    console.log("Jogador nao encontrado:", telefone);
+    return new Response("not found", { status: 200 });
+  }
   const jogador = jogadores[0];
+  console.log("JOGADOR:", jogador.nome);
 
-  // Busca participação pendente mais recente
   const participacoes = await dbGet("participacoes",
     `select=id,jogo_id,created_at,jogos(id,data,hora,quadra,status)&jogador_id=eq.${jogador.id}&resposta=eq.pendente&order=created_at.desc&limit=1`
   );
   if (!Array.isArray(participacoes) || !participacoes.length) {
-    console.log("Nenhuma participação pendente para:", jogador.nome);
+    console.log("Nenhuma participacao pendente para:", jogador.nome);
     return new Response("no pending", { status: 200 });
   }
 
   const participacao = participacoes[0];
   const jogo = participacao.jogos;
 
-  // FIX 6: Se jogo já fechado, não processa
+  // FIX: Se jogo ja fechado, nao processa
   if (jogo.status === "fechado") {
-    console.log("Jogo já fechado, ignorando resposta de:", jogador.nome);
+    console.log("Jogo ja fechado, ignorando resposta de:", jogador.nome);
     await dbPatch("participacoes", `id=eq.${participacao.id}`, { resposta: "expirado" });
     return new Response("game closed", { status: 200 });
   }
@@ -248,9 +255,9 @@ Deno.serve(async (req) => {
     console.log("RESULTADO CLAUDE:", resultado);
   }
 
+  // Se ainda desconhecido, nao faz nada — deixa para o operador
   if (resultado === "desconhecido") {
-    // Não entendeu — deixa para o operador agir manualmente
-    console.log("NAO ENTENDIDO:", textoFinal, "jogador:", jogador.nome);
+    console.log("NAO ENTENDIDO — operador deve agir:", textoFinal, "jogador:", jogador.nome);
     return new Response("unclear - operator action required", { status: 200 });
   }
 
@@ -260,7 +267,7 @@ Deno.serve(async (req) => {
   });
   console.log("PARTICIPACAO ATUALIZADA:", resultado);
 
-  // FIX 7: Agradecimento ao NÃO sempre
+  // FIX: Agradecimento ao NAO sempre
   if (resultado === "nao") {
     await enviarMsg(telefone,
       `Oi, ${jogador.nome.split(" ")[0]}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo 🎾\n\n_${REMETENTE}_`
@@ -276,22 +283,25 @@ Deno.serve(async (req) => {
     );
   }
 
-  // FIX 5 e 6: Verificação dupla antes de fechar
+  // FIX: Verifica confirmados com protecao contra duplicata
   const confirmados = await dbGet("participacoes",
     `select=id,jogadores(nome,telefone)&jogo_id=eq.${jogo.id}&resposta=eq.confirmado`
   );
   const jogoAtual = await dbGet("jogos", `select=status&id=eq.${jogo.id}`);
   const jogoStatus = Array.isArray(jogoAtual) ? jogoAtual[0]?.status : "ativo";
 
-  console.log("CONFIRMADOS TOTAL:", Array.isArray(confirmados) ? confirmados.length : 0, "STATUS:", jogoStatus);
+  console.log("CONFIRMADOS:", Array.isArray(confirmados) ? confirmados.length : 0, "STATUS:", jogoStatus);
 
+  // FIX: Fecha apenas com EXATAMENTE 4 e apenas se ainda nao fechado
   if (Array.isArray(confirmados) && confirmados.length === 4 && jogoStatus !== "fechado") {
+    // Fecha ANTES de enviar para evitar duplicatas
     await dbPatch("jogos", `id=eq.${jogo.id}`, { status: "fechado" });
     console.log("JOGO FECHADO!");
 
     const dataFmt = jogo.data ? jogo.data.split("-").reverse().join("/") : "";
     const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${dataFmt}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados.slice(0, 4).map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
 
+    // Envia sem duplicatas
     const enviados = new Set<string>();
     for (const c of confirmados.slice(0, 4)) {
       const tel = c.jogadores.telefone;
@@ -301,6 +311,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Expira pendentes restantes
     await dbPatch("participacoes",
       `jogo_id=eq.${jogo.id}&resposta=eq.pendente`,
       { resposta: "expirado" }
