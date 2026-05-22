@@ -1,4 +1,4 @@
-const CACHE_NAME = "profit1-v1";
+﻿const CACHE_NAME = "profit1-v2";
 const ASSETS = ["/", "/index.html"];
 
 // Instala o service worker
@@ -19,7 +19,7 @@ self.addEventListener("activate", e => {
   self.clients.claim();
 });
 
-// Fetch — network first, cache fallback
+// Fetch â€” network first, cache fallback
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
   e.respondWith(
@@ -38,7 +38,7 @@ self.addEventListener("push", e => {
   const data = e.data?.json() || {};
   const title = data.title || "Profit1 Convites";
   const options = {
-    body: data.body || "Atualização no jogo!",
+    body: data.body || "AtualizaÃ§Ã£o no jogo!",
     icon: "/logo.png",
     badge: "/logo.png",
     vibrate: [200, 100, 200],
@@ -47,7 +47,7 @@ self.addEventListener("push", e => {
   e.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Clique na notificação — abre o app
+// Clique na notificaÃ§Ã£o â€” abre o app
 self.addEventListener("notificationclick", e => {
   e.notification.close();
   e.waitUntil(
@@ -60,3 +60,4 @@ self.addEventListener("notificationclick", e => {
     })
   );
 });
+
