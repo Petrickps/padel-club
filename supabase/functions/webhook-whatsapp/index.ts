@@ -4,6 +4,8 @@ const EVO_URL = Deno.env.get("EVO_URL") || "https://evolution-api-production-27b
 const EVO_KEY = Deno.env.get("EVO_KEY") || "";
 const EVO_INSTANCE = Deno.env.get("EVO_INSTANCE") || "profit1";
 const REMETENTE = Deno.env.get("REMETENTE") || "Gabi da Profit";
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") || "";
 
 async function dbGet(table: string, query: string) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
@@ -23,9 +25,16 @@ async function dbPatch(table: string, query: string, data: any) {
   });
 }
 
-const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") || "";
-
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+async function enviarMsg(telefone: string, mensagem: string) {
+  const num = telefone.replace(/\D/g, "");
+  const numFmt = num.startsWith("55") ? num : `55${num}`;
+  const res = await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": EVO_KEY },
+    body: JSON.stringify({ number: numFmt, text: mensagem }),
+  });
+  if (!res.ok) console.log("ENVIO ERRO:", await res.text());
+}
 
 async function interpretarComClaude(texto: string): Promise<"sim" | "nao" | "desconhecido"> {
   if (!ANTHROPIC_KEY) return "desconhecido";
@@ -42,7 +51,14 @@ async function interpretarComClaude(texto: string): Promise<"sim" | "nao" | "des
         max_tokens: 10,
         messages: [{
           role: "user",
-          content: `Uma pessoa recebeu um convite para jogar padel e respondeu: "${texto}"\nEssa resposta indica SIM (quer jogar) ou NAO (não quer jogar)? Responda apenas SIM ou NAO.`
+          content: `Uma pessoa recebeu um convite para jogar padel e respondeu: "${texto}"
+
+Analise com cuidado. Considere:
+- Respostas NEGATIVAS incluem: qualquer desculpa, compromisso, indisponibilidade, "não posso", "outra vez", "próxima", "infelizmente", frases explicando por que não pode ir, qualquer forma de recusa educada
+- Respostas POSITIVAS são claras confirmações de participação: sim, topo, bora, pode, claro, vou
+- Em caso de dúvida, prefira NAO
+
+Responda APENAS com SIM ou NAO, sem mais nada.`
         }]
       })
     });
@@ -61,7 +77,6 @@ async function interpretarComClaude(texto: string): Promise<"sim" | "nao" | "des
 async function transcreverAudio(msgId: string, telefone: string): Promise<string> {
   if (!OPENAI_KEY) return "";
   try {
-    // Tenta buscar mídia via Evolution API
     const res = await fetch(`${EVO_URL}/chat/getBase64FromMediaMessage/${EVO_INSTANCE}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "apikey": EVO_KEY },
@@ -71,12 +86,9 @@ async function transcreverAudio(msgId: string, telefone: string): Promise<string
       }),
     });
     const data = await res.json();
-    console.log("MEDIA RESPONSE keys:", Object.keys(data||{}).join(","));
-
     const base64 = data.base64 || data.mediaBase64 || data.media || "";
     const mimetype = data.mimetype || data.mediaType || "audio/ogg; codecs=opus";
-    console.log("BASE64 length:", base64.length, "MIMETYPE:", mimetype);
-    if (!base64) return "";
+    if (!base64) { console.log("BASE64 vazio"); return ""; }
 
     const clean = base64.replace(/^data:[^;]+;base64,/, "");
     const binary = atob(clean);
@@ -89,6 +101,7 @@ async function transcreverAudio(msgId: string, telefone: string): Promise<string
     formData.append("file", blob, `audio.${ext}`);
     formData.append("model", "whisper-1");
     formData.append("language", "pt");
+    formData.append("prompt", "Resposta para convite de padel. Pode ser: sim, não, não posso, topo, infelizmente não, pode ser, bora, não vou conseguir.");
 
     const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
@@ -96,7 +109,7 @@ async function transcreverAudio(msgId: string, telefone: string): Promise<string
       body: formData,
     });
     const whisperData = await whisperRes.json();
-    console.log("WHISPER FULL:", JSON.stringify(whisperData).slice(0,300));
+    console.log("WHISPER:", JSON.stringify(whisperData).slice(0, 300));
     return whisperData.text || "";
   } catch(e) {
     console.log("Audio error:", e);
@@ -104,55 +117,54 @@ async function transcreverAudio(msgId: string, telefone: string): Promise<string
   }
 }
 
-async function enviarMsg(telefone: string, mensagem: string) {
-  const num = telefone.replace(/\D/g, "");
-  const numFmt = num.startsWith("55") ? num : `55${num}`;
-  await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "apikey": EVO_KEY },
-    body: JSON.stringify({ number: numFmt, text: mensagem }),
-  });
-}
-
 function reconhecer(texto: string): "sim" | "nao" | "desconhecido" {
   const t = texto.toLowerCase().trim()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-  const sim = ["sim","s","pode","topo","quero","vai","bora","claro","confirmo","ok","okay","vou","yes","positivo","tô dentro","to dentro","pode ser","com certeza","claro que sim","with pleasure","aceito","combinado","fechado","top","ótimo","otimo","perfeito","maravilha","show","beleza","certo","certo!","vai la","vai lá"];
-
   const nao = [
-    "nao","n","negativo","impossivel","cancelar","ocupado","ocupada","infelizmente","no","nope",
-    "não consigo","nao consigo","não posso","nao posso","não vou","nao vou","não dá","nao da",
-    "não tenho","nao tenho","estarei","estaremos","visita","compromisso","viagem","viajando",
-    "trabalhando","trabalho","reuniao","reunião","médico","medico","dentista","ocupad",
-    "fora da cidade","sem condições","sem condicoes","indisponível","indisponivel","não será","nao sera",
-    "dessa vez não","dessa vez nao","não dessa","próxima","proxima vez","outra vez","outro dia",
-    "amanha nao","amanhã não","hoje nao","hoje não","semana que vem","não rola","nao rola"
+    "nao","negativo","impossivel","cancelar","ocupado","ocupada","infelizmente",
+    "nope","nao consigo","nao posso","nao vou","nao da","nao tenho",
+    "estarei","compromisso","viagem","viajando","trabalhando","trabalho",
+    "reuniao","medico","dentista","fora da cidade","sem condicoes","indisponivel",
+    "nao sera","dessa vez nao","proxima vez","outra vez","outro dia","amanha nao",
+    "hoje nao","semana que vem","nao rola","nao vou conseguir","nao consigo ir",
+    "nao da pra mim","nao tem como","to fora","to de viagem","nao vou poder",
+    "essa semana nao","nesse dia nao","nesse horario nao","nao posso ir",
+    "nao vai ser possivel","nao estou disponivel","nao vou estar","nao estarei",
+    "obrigado mas nao","obrigada mas nao","lamento","sinto muito","que pena",
+    "nao consigo dessa vez","dessa vez nao da","nao pode",
   ];
 
-  if (sim.some(p => t === p || t.startsWith(p + " ") || t.includes(p))) return "sim";
+  const sim = [
+    "sim","pode","topo","quero","bora","claro","confirmo","okay",
+    "vou sim","yes","positivo","to dentro","com certeza","aceito","combinado",
+    "fechado","top","otimo","perfeito","maravilha","show","beleza","vai la",
+  ];
+
+  // Verifica NAO primeiro
   if (nao.some(p => t === p || t.startsWith(p) || t.includes(p))) return "nao";
+  // SIM apenas em palavras exatas ou início claro
+  if (sim.some(p => t === p || t === `${p}!` || t === `${p}.` || t.startsWith(`${p} `) || t.startsWith(`${p},`))) return "sim";
+  // "ok" e "s" só se for a mensagem inteira
+  if (t === "ok" || t === "s" || t === "vai") return "sim";
+
   return "desconhecido";
 }
 
-// Gera todas as variações possíveis de um telefone brasileiro
 function variacoesTel(tel: string): string[] {
-  const limpo = tel.replace(/\D/g,"");
+  const limpo = tel.replace(/\D/g, "");
   const vars = new Set<string>();
   vars.add(limpo);
-  // sem 55
   const sem55 = limpo.startsWith("55") ? limpo.slice(2) : limpo;
   vars.add(sem55);
   vars.add(`55${sem55}`);
-  // com 9 extra (celular)
   if (sem55.length === 10) {
-    const com9 = sem55.slice(0,2) + "9" + sem55.slice(2);
+    const com9 = sem55.slice(0, 2) + "9" + sem55.slice(2);
     vars.add(com9);
     vars.add(`55${com9}`);
   }
-  // sem 9 extra
   if (sem55.length === 11 && sem55[2] === "9") {
-    const sem9 = sem55.slice(0,2) + sem55.slice(3);
+    const sem9 = sem55.slice(0, 2) + sem55.slice(3);
     vars.add(sem9);
     vars.add(`55${sem9}`);
   }
@@ -167,8 +179,7 @@ Deno.serve(async (req) => {
   catch { return new Response("bad json", { status: 200 }); }
 
   const event = body.event || "";
-  const eventosValidos = ["messages.upsert","messages.update","message.received","messages.set"];
-  if (!eventosValidos.some(e => event === e || event.includes("message"))) {
+  if (!event.includes("message")) {
     console.log("Evento ignorado:", event);
     return new Response("ignored", { status: 200 });
   }
@@ -180,7 +191,7 @@ Deno.serve(async (req) => {
   const remoteJid = key.remoteJid || "";
   if (!remoteJid || remoteJid.includes("@g.us")) return new Response("group", { status: 200 });
 
-  const telefone = remoteJid.replace("@s.whatsapp.net","").replace("@c.us","");
+  const telefone = remoteJid.replace("@s.whatsapp.net", "").replace("@c.us", "");
   const message = data.message || {};
   let texto = message.conversation || message.extendedTextMessage?.text || "";
   let ehAudio = false;
@@ -191,9 +202,8 @@ Deno.serve(async (req) => {
     console.log("AUDIO detectado, msgId:", msgId);
   }
 
-  console.log("TEL:", telefone, "TEXTO:", texto, "EH AUDIO:", ehAudio);
+  console.log("TEL:", telefone, "TEXTO:", texto, "AUDIO:", ehAudio);
 
-  // Transcreve áudio se necessário
   let textoFinal = texto;
   if (ehAudio && msgId) {
     textoFinal = await transcreverAudio(msgId, telefone);
@@ -202,34 +212,37 @@ Deno.serve(async (req) => {
 
   if (!textoFinal) return new Response("no text", { status: 200 });
 
-  // Busca jogador com todas as variações de telefone
   const vars = variacoesTel(telefone);
-  console.log("VARS:", vars.join(","));
   const orQuery = vars.map(v => `telefone.eq.${v}`).join(",");
-
   const jogadores = await dbGet("jogadores", `select=id,nome,telefone&or=(${orQuery})&ativo=eq.true`);
-  console.log("JOGADORES:", Array.isArray(jogadores) ? jogadores.length : "erro", jogadores?.[0]?.nome);
-
   if (!Array.isArray(jogadores) || !jogadores.length) return new Response("not found", { status: 200 });
   const jogador = jogadores[0];
 
-  // Busca participação pendente
+  // Busca participação pendente mais recente
   const participacoes = await dbGet("participacoes",
-    `select=id,jogo_id,jogos(id,data,hora,quadra)&jogador_id=eq.${jogador.id}&resposta=eq.pendente&order=created_at.desc&limit=1`
+    `select=id,jogo_id,created_at,jogos(id,data,hora,quadra,status)&jogador_id=eq.${jogador.id}&resposta=eq.pendente&order=created_at.desc&limit=1`
   );
-  console.log("PENDENTES:", Array.isArray(participacoes) ? participacoes.length : "erro");
-
-  if (!Array.isArray(participacoes) || !participacoes.length) return new Response("no pending", { status: 200 });
+  if (!Array.isArray(participacoes) || !participacoes.length) {
+    console.log("Nenhuma participação pendente para:", jogador.nome);
+    return new Response("no pending", { status: 200 });
+  }
 
   const participacao = participacoes[0];
   const jogo = participacao.jogos;
 
+  // FIX 6: Se jogo já fechado, não processa
+  if (jogo.status === "fechado") {
+    console.log("Jogo já fechado, ignorando resposta de:", jogador.nome);
+    await dbPatch("participacoes", `id=eq.${participacao.id}`, { resposta: "expirado" });
+    return new Response("game closed", { status: 200 });
+  }
+
   let resultado = reconhecer(textoFinal);
-  console.log("RESULTADO:", resultado, "para:", textoFinal);
+  console.log("RESULTADO LOCAL:", resultado, "para:", textoFinal);
 
   if (resultado === "desconhecido") {
     resultado = await interpretarComClaude(textoFinal);
-    console.log("RESULTADO POS CLAUDE:", resultado);
+    console.log("RESULTADO CLAUDE:", resultado);
   }
 
   if (resultado === "desconhecido") {
@@ -241,13 +254,16 @@ Deno.serve(async (req) => {
     resposta: resultado === "sim" ? "confirmado" : "recusou",
     respondido_em: new Date().toISOString(),
   });
+  console.log("PARTICIPACAO ATUALIZADA:", resultado);
 
-  console.log("ATUALIZADO:", resultado);
-
+  // FIX 7: Agradecimento ao NÃO sempre
   if (resultado === "nao") {
     await enviarMsg(telefone,
       `Oi, ${jogador.nome.split(" ")[0]}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo 🎾\n\n_${REMETENTE}_`
     );
+    return new Response(JSON.stringify({ ok: true, resultado }), {
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   if (resultado === "sim") {
@@ -256,18 +272,37 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Verifica se fechou
+  // FIX 5 e 6: Verificação dupla antes de fechar
   const confirmados = await dbGet("participacoes",
     `select=id,jogadores(nome,telefone)&jogo_id=eq.${jogo.id}&resposta=eq.confirmado`
   );
-  console.log("CONFIRMADOS:", Array.isArray(confirmados) ? confirmados.length : 0);
+  const jogoAtual = await dbGet("jogos", `select=status&id=eq.${jogo.id}`);
+  const jogoStatus = Array.isArray(jogoAtual) ? jogoAtual[0]?.status : "ativo";
 
-  if (Array.isArray(confirmados) && confirmados.length >= 4) {
+  console.log("CONFIRMADOS TOTAL:", Array.isArray(confirmados) ? confirmados.length : 0, "STATUS:", jogoStatus);
+
+  if (Array.isArray(confirmados) && confirmados.length === 4 && jogoStatus !== "fechado") {
     await dbPatch("jogos", `id=eq.${jogo.id}`, { status: "fechado" });
-    const dataFmt = jogo.data ? jogo.data.split("-").reverse().join("/") : "";
-    const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${dataFmt}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados.map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
-    for (const c of confirmados) await enviarMsg(c.jogadores.telefone, msg);
     console.log("JOGO FECHADO!");
+
+    const dataFmt = jogo.data ? jogo.data.split("-").reverse().join("/") : "";
+    const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${dataFmt}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados.slice(0, 4).map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
+
+    // Envia sem duplicatas
+    const enviados = new Set<string>();
+    for (const c of confirmados.slice(0, 4)) {
+      const tel = c.jogadores.telefone;
+      if (!enviados.has(tel)) {
+        await enviarMsg(tel, msg);
+        enviados.add(tel);
+      }
+    }
+
+    // Expira pendentes restantes
+    await dbPatch("participacoes",
+      `jogo_id=eq.${jogo.id}&resposta=eq.pendente`,
+      { resposta: "expirado" }
+    );
   }
 
   return new Response(JSON.stringify({ ok: true, resultado }), {

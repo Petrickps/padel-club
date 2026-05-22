@@ -1,6 +1,3 @@
-// supabase/functions/enviar-whatsapp/index.ts
-// Proxy para Evolution API — resolve problema de CORS no browser
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const EVO_URL      = "https://evolution-api-production-27b9.up.railway.app";
@@ -14,13 +11,13 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Responde preflight CORS
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { number, text } = await req.json();
+    const body = await req.json();
+    const { number, text } = body;
 
     if (!number || !text) {
       return new Response(
@@ -29,11 +26,13 @@ serve(async (req) => {
       );
     }
 
-    // Formata número: remove não-dígitos, garante código país 55
-    const num = number.replace(/\D/g, "");
+    // Formata número
+    const num = String(number).replace(/\D/g, "");
     const numFmt = num.startsWith("55") ? num : `55${num}`;
 
-    const res = await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
+    console.log("Enviando para:", numFmt);
+
+    const evoRes = await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -41,27 +40,20 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         number: numFmt,
-        text,
+        text: text,
       }),
     });
 
-    const data = await res.text();
-
-    if (!res.ok) {
-      console.error("Evolution API error:", res.status, data);
-      return new Response(
-        JSON.stringify({ error: data }),
-        { status: res.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const data = await evoRes.text();
+    console.log("Evolution response:", evoRes.status, data);
 
     return new Response(data, {
-      status: 200,
+      status: evoRes.status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err) {
-    console.error("Erro interno:", err);
+    console.error("Erro:", err);
     return new Response(
       JSON.stringify({ error: String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -62,7 +62,7 @@ const db = {
       method: "POST",
       body: JSON.stringify({
         nome: j.nome, telefone: j.tel, genero: j.g,
-        categoria: j.cat, categoria2: j.cat2||null,
+        categoria: j.cat,
         dias_pref: j.dias, horas_pref: j.hrs,
         aceita_misto: j.aceitaMisto, ativo: true,
         indisponivel_ate: j.indisponivelAte||null,
@@ -148,7 +148,7 @@ const db = {
 function fromDB(j) {
   return {
     id: j.id, nome: j.nome, tel: j.telefone,
-    g: j.genero, cat: j.categoria, cat2: j.categoria2||null,
+    g: j.genero, cat: j.categoria,
     dias: j.dias_pref || [], hrs: j.horas_pref || [],
     aceitaMisto: j.aceita_misto || false,
     indisponivelAte: j.indisponivel_ate || null,
@@ -257,7 +257,7 @@ function filtrarCandidatos(jogadores,genero,catsAlvo,dn,hr,metricas={}){
     if(genero==="F"&&j.g!=="F")return false;
     if(genero==="Misto"&&!j.aceitaMisto)return false;
     if(catsAlvo.length>0){
-      const temCat=catsAlvo.includes(j.cat)||(j.cat2&&catsAlvo.includes(j.cat2));
+      const temCat=catsAlvo.includes(j.cat);
       if(!temCat) return false;
     }
     return true;
@@ -2148,4 +2148,5 @@ export default function App(){
       boxShadow:"0 4px 20px rgba(0,0,0,.1)",animation:"fadeIn .25s ease"}}>{toast.msg}</div>}
   </div>;
 }
+
 
