@@ -1488,7 +1488,7 @@ export default function App(){
   const [cancelarModal,setCancelarModal]=useState(null);
   const [confirmarManualModal,setConfirmarManualModal]=useState(null); // jogo a cancelar
   const [toast,setToast]=useState(null);
-  const [remetente,setRemetente]=useState(()=>localStorage.getItem("remetente")||"Gabi");
+  const [remetente,setRemetente]=useState(()=>"Gabi");
   const timersRef=useRef({});
   const remetenteRef=useRef(remetente);
   const jogosAtivosRef=useRef(jogosAtivos);
@@ -2153,6 +2153,7 @@ export default function App(){
       boxShadow:"0 4px 20px rgba(0,0,0,.1)",animation:"fadeIn .25s ease"}}>{toast.msg}</div>}
   </div>;
 }
+
 
 
 
