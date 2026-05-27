@@ -976,17 +976,20 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
       </div>
     </div>
 
-    <button onClick={disparar} disabled={!slot.data||!slot.hora||!slot.quadra||(modoSelecao==="automatico"?!slotOk:selecionadosManuais.length===0)} style={{width:"100%",padding:12,fontSize:14,
-      fontWeight:700,borderRadius:10,border:"none",
-      cursor={(slot.data&&slot.hora&&slot.quadra&&(modoSelecao==="manual"?selecionadosManuais.length>0:slotOk))?"pointer":"not-allowed"},
-      fontFamily:"inherit",
-      background={(slot.data&&slot.hora&&slot.quadra&&(modoSelecao==="manual"?selecionadosManuais.length>0:slotOk))?C.green:"#E2E8F0"},
-      color:{(slot.data&&slot.hora&&slot.quadra&&(modoSelecao==="manual"?selecionadosManuais.length>0:slotOk))?"#fff":C.textMut},
-      transition:"all .2s"}}>
-      {modoSelecao==="manual"
-        ?selecionadosManuais.length>0?` Enviar para ${selecionadosManuais.length} jogador(es)`:"Selecione ao menos 1 jogador"
-        :preConf.length>0?` Buscar ${vagasAbertas} jogador(es)`:" Disparar Cascata"}
-    </button>
+    {(()=>{
+      const ok=slot.data&&slot.hora&&slot.quadra&&(modoSelecao==="manual"?selecionadosManuais.length>0:slotOk);
+      return <button onClick={disparar} disabled={!ok} style={{width:"100%",padding:12,fontSize:14,
+        fontWeight:700,borderRadius:10,border:"none",
+        cursor:ok?"pointer":"not-allowed",
+        fontFamily:"inherit",
+        background:ok?C.green:"#E2E8F0",
+        color:ok?"#fff":C.textMut,
+        transition:"all .2s"}}>
+        {modoSelecao==="manual"
+          ?selecionadosManuais.length>0?`Enviar para ${selecionadosManuais.length} jogador(es)`:"Selecione ao menos 1 jogador"
+          :preConf.length>0?`Buscar ${vagasAbertas} jogador(es)`:"Disparar Cascata"}
+      </button>;
+    })()}
     {modoSelecao==="automatico"&&!slotOk&&<p style={{fontSize:11,color:C.textMut,textAlign:"center",marginTop:6}}>
       {!slot.data||!slot.hora||!slot.quadra?"Preencha data, horário e quadra":"Candidatos insuficientes"}
     </p>}
