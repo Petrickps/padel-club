@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
 const SUPA_URL = "https://hyjvqjrnpobujwvsqsrn.supabase.co";
@@ -249,13 +249,13 @@ function buildMsgConvite(j, slot, confirmados, remetente, participacaoId) {
     linhaConf = `\n*${nomes.join(", ")}* e *${ultimo}* já confirmaram.`;
   }
   const rem = remetente ? `${remetente} aqui, tudo bem?! ` : "";
-  let msg = `Oi, ${nome}! ${rem}🎾\n\nTenho um jogo para você:\n\n📅 *${ds}, ${fmtData(slot.data)}*\n🕐 *${slot.hora}*\n🏟️ *${slot.quadra}*${linhaConf}\n\nVocê topa?`;
+  let msg = `Oi, ${nome}! ${rem}[P]\n\nTenho um jogo para você:\n\n *${ds}, ${fmtData(slot.data)}*\n *${slot.hora}*\n *${slot.quadra}*${linhaConf}\n\nVocê topa?`;
   // FIX: adiciona botoes SIM/NAO se tiver participacaoId
   if (participacaoId) {
     const base = `${SUPA_URL}/functions/v1/responder`;
-    msg += `\n\n✅ SIM → ${base}?p=${participacaoId}&r=sim\n❌ NÃO → ${base}?p=${participacaoId}&r=nao`;
+    msg += `\n\n[OK] SIM → ${base}?p=${participacaoId}&r=sim\n[X] NÃO → ${base}?p=${participacaoId}&r=nao`;
   } else {
-    msg += `\n\nResponda *SIM* ou *NÃO* 🎾`;
+    msg += `\n\nResponda *SIM* ou *NÃO* [P]`;
   }
   return msg;
 }
@@ -263,13 +263,13 @@ function buildMsgConvite(j, slot, confirmados, remetente, participacaoId) {
 function buildMsgAgradecimento(j, remetente) {
   const nome = j.nome.split(" ")[0];
   const rem = remetente || "";
-  return `Oi, ${nome}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo 🎾${rem ? `\n\n_${rem}_` : ""}`;
+  return `Oi, ${nome}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo [P]${rem ? `\n\n_${rem}_` : ""}`;
 }
 
 function buildMsgFechado(d1, d2, slot) {
   const ds = diaSemana(slot.data);
   const todos = [...(d1||[]),...(d2||[])];
-  return `🎾 *JOGO CONFIRMADO!*\n\n📅 ${ds}, ${fmtData(slot.data)}\n🕐 ${slot.hora}\n🏟️ ${slot.quadra}\n\n${todos.map(j=>`• ${j.nome}`).join("\n")}`;
+  return `[P] *JOGO CONFIRMADO!*\n\n ${ds}, ${fmtData(slot.data)}\n ${slot.hora}\n ${slot.quadra}\n\n${todos.map(j=>`- ${j.nome}`).join("\n")}`;
 }
 
 // ─── ATOMS ────────────────────────────────────────────────────────────────────
@@ -287,7 +287,7 @@ function CatPill({cat,size=10}){
     fontSize:size,fontWeight:700,padding:"2px 7px",borderRadius:99,whiteSpace:"nowrap"}}>{cat}</span>;
 }
 function GenBadge({g}){
-  const cfg={M:{c:"#1D4ED8",l:"♂"},F:{c:"#BE185D",l:"♀"},Misto:{c:"#92400E",l:"⚤"},Todos:{c:"#374151",l:"👥"}};
+  const cfg={M:{c:"#1D4ED8",l:"M"},F:{c:"#BE185D",l:"F"},Misto:{c:"#92400E",l:"M+F"},Todos:{c:"#374151",l:""}};
   const{c,l}=cfg[g]||cfg.M;
   return <span style={{color:c,fontSize:11,fontWeight:700}}>{l}</span>;
 }
@@ -322,13 +322,13 @@ function Btn({children,onClick,variant="primary",disabled,style={}}){
 }
 function StatusPill({status}){
   const cfg={
-    pendente:   {c:C.yellow,  bg:C.yellowBg, i:"⏳",l:"Aguardando"},
-    confirmado: {c:C.green,   bg:C.greenBg,  i:"✅",l:"Confirmado"},
-    recusou:    {c:C.red,     bg:C.redBg,    i:"❌",l:"Recusou"},
-    expirado:   {c:C.textMut, bg:"#F8FAFC",  i:"⌛",l:"Sem resposta"},
-    aguardando: {c:C.textMut, bg:"#F8FAFC",  i:"🔜",l:"Na fila"},
-    interessado:{c:"#7C3AED", bg:"#F5F3FF",  i:"🙋",l:"Interessado"},
-    excluido_cat:{c:C.textMut,bg:"#F8FAFC",  i:"🚫",l:"Excluído"},
+    pendente:   {c:C.yellow,  bg:C.yellowBg, i:"",l:"Aguardando"},
+    confirmado: {c:C.green,   bg:C.greenBg,  i:"[OK]",l:"Confirmado"},
+    recusou:    {c:C.red,     bg:C.redBg,    i:"[X]",l:"Recusou"},
+    expirado:   {c:C.textMut, bg:"#F8FAFC",  i:"",l:"Sem resposta"},
+    aguardando: {c:C.textMut, bg:"#F8FAFC",  i:"",l:"Na fila"},
+    interessado:{c:"#7C3AED", bg:"#F5F3FF",  i:"",l:"Interessado"},
+    excluido_cat:{c:C.textMut,bg:"#F8FAFC",  i:"",l:"Excluído"},
   };
   const{c,bg,i,l}=cfg[status]||cfg.aguardando;
   return <span style={{fontSize:10,color:c,fontWeight:700,background:bg,
@@ -390,14 +390,14 @@ function tocarSom(tipo="confirmado") {
 // ─── MODAIS ───────────────────────────────────────────────────────────────────
 function MsgModal({titulo,texto,tel,onClose,fireToast}){
   const[ok,setOk]=useState(false);
-  function copiar(){navigator.clipboard.writeText(texto).then(()=>{setOk(true);fireToast("Copiado! 📋");setTimeout(()=>setOk(false),2000);});}
+  function copiar(){navigator.clipboard.writeText(texto).then(()=>{setOk(true);fireToast("Copiado! ");setTimeout(()=>setOk(false),2000);});}
   return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",
     zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:22,
       width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.15)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <h3 style={{fontSize:15,fontWeight:700,color:"#25D366"}}>📱 {titulo}</h3>
-        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:20}}>✕</button>
+        <h3 style={{fontSize:15,fontWeight:700,color:"#25D366"}}> {titulo}</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:20}}>x</button>
       </div>
       {tel&&<div style={{fontSize:11,color:C.textSub,marginBottom:10}}>Para: <strong style={{color:C.text}}>{tel}</strong></div>}
       <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",
@@ -407,7 +407,7 @@ function MsgModal({titulo,texto,tel,onClose,fireToast}){
         <button onClick={copiar} style={{flex:1,border:ok?`1.5px solid ${C.green}`:"none",cursor:"pointer",
           fontFamily:"inherit",fontWeight:700,borderRadius:10,fontSize:13,padding:"11px 0",
           background:ok?"#fff":"#25D366",color:ok?C.green:"#fff",transition:"all .2s"}}>
-          {ok?"✅ Copiado!":"📋 Copiar mensagem"}
+          {ok?"[OK] Copiado!":" Copiar mensagem"}
         </button>
         <Btn variant="ghost" onClick={onClose}>Fechar</Btn>
       </div>
@@ -421,18 +421,18 @@ function AlertaOperador({alerta,onClose,onNovoSlot}){
     zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,
       width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
-      <div style={{fontSize:28,textAlign:"center",marginBottom:12}}>⚠️</div>
+      <div style={{fontSize:28,textAlign:"center",marginBottom:12}}>(!)</div>
       <h3 style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center",marginBottom:8}}>Jogo já fechado!</h3>
       <div style={{background:C.yellowBg,border:`1px solid ${C.yellowBor}`,borderRadius:10,
         padding:"12px 14px",marginBottom:16,fontSize:13,color:C.text,lineHeight:1.6}}>
         <strong>{jogador.nome}</strong> respondeu <strong>SIM</strong> mas o jogo já estava fechado.<br/><br/>
-        📅 {diaSemana(slot.data)}, {fmtData(slot.data)} · {slot.hora} · {slot.quadra}<br/><br/>
+         {diaSemana(slot.data)}, {fmtData(slot.data)} · {slot.hora} · {slot.quadra}<br/><br/>
         Há outro horário ou quadra disponível para este jogador?
       </div>
       <div style={{display:"flex",gap:8}}>
         <button onClick={onNovoSlot} style={{flex:1,background:C.green,color:"#fff",border:"none",
           borderRadius:10,padding:"11px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-          ✅ Criar novo jogo
+          [OK] Criar novo jogo
         </button>
         <button onClick={onClose} style={{background:"#fff",border:`1.5px solid ${C.border}`,color:C.textSub,
           borderRadius:10,padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
@@ -465,7 +465,7 @@ function CandRow({j,onSim,onNao,onMsg,slot,confirmados=[],remetente=""}){
       <button onClick={()=>onMsg({titulo:`Convite — ${j.nome.split(" ")[0]}`,
         texto:buildMsgConvite(j,slot,confirmados,remetente,j.participacaoId),tel:j.tel})}
         style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:7,
-          padding:"4px 8px",cursor:"pointer",fontSize:12,color:C.textSub,fontFamily:"inherit",fontWeight:600}}>📋</button>
+          padding:"4px 8px",cursor:"pointer",fontSize:12,color:C.textSub,fontFamily:"inherit",fontWeight:600}}></button>
       {onSim&&<>
         <button onClick={onSim} style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
           borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,color:C.green,fontFamily:"inherit",fontWeight:700}}>SIM</button>
@@ -483,7 +483,7 @@ function JogoCard({jogo,isAtivo,onClick,onFechar}){
   const semCandidatos=jogo.status==="sem_candidatos";
   const borderColor=fechado?C.green:semCandidatos?C.red:isAtivo?"#2563EB":C.border;
   const statusColor=fechado?C.green:semCandidatos?C.red:pend>0?C.yellow:C.textMut;
-  const statusLabel=fechado?"✅ Fechado":semCandidatos?"⚠️ Sem candidatos":pend>0?`⏳ ${pend} aguardando`:"⏸ Pausado";
+  const statusLabel=fechado?"[OK] Fechado":semCandidatos?"(!) Sem candidatos":pend>0?` ${pend} aguardando`:" Pausado";
   return <div onClick={onClick} style={{background:isAtivo?"#F0F7FF":"#fff",border:`2px solid ${borderColor}`,
     borderRadius:14,padding:"14px 16px",cursor:"pointer",transition:"all .2s",
     boxShadow:isAtivo?"0 4px 20px rgba(37,99,235,.12)":"none"}}>
@@ -498,7 +498,7 @@ function JogoCard({jogo,isAtivo,onClick,onFechar}){
       <div style={{display:"flex",alignItems:"center",gap:6}}>
         {!fechado&&!semCandidatos&&<TimerRing seg={jogo.timer} total={TIMER_MAX} size={46}/>}
         <button onClick={e=>{e.stopPropagation();onFechar();}} style={{background:"none",border:"none",
-          cursor:"pointer",color:C.textMut,fontSize:16,padding:"2px 4px",lineHeight:1}}>✕</button>
+          cursor:"pointer",color:C.textMut,fontSize:16,padding:"2px 4px",lineHeight:1}}>x</button>
       </div>
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
@@ -509,7 +509,7 @@ function JogoCard({jogo,isAtivo,onClick,onFechar}){
     </div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <span style={{fontSize:11,color:statusColor,fontWeight:600}}>{statusLabel}</span>
-      <span style={{fontSize:11,color:isAtivo?C.blue:C.textMut,fontWeight:600}}>{isAtivo?"▼ aberto":"▶ ver"}</span>
+      <span style={{fontSize:11,color:isAtivo?C.blue:C.textMut,fontWeight:600}}>{isAtivo?"v aberto":"> ver"}</span>
     </div>
   </div>;
 }
@@ -525,7 +525,7 @@ function ModalConfirmarManual({jogo,onConfirmar,onClose,remetente}){
     zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,
       width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
-      <div style={{fontSize:28,textAlign:"center",marginBottom:8}}>✅</div>
+      <div style={{fontSize:28,textAlign:"center",marginBottom:8}}>[OK]</div>
       <h3 style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center",marginBottom:4}}>Confirmar manualmente</h3>
       <p style={{fontSize:12,color:C.textSub,textAlign:"center",marginBottom:16}}>
         Selecione os 4 jogadores que vão participar.
@@ -547,13 +547,13 @@ function ModalConfirmarManual({jogo,onConfirmar,onClose,remetente}){
               <div style={{fontWeight:600,fontSize:13,color:C.text}}>{j.nome}</div>
               <div style={{display:"flex",gap:4}}><CatPill cat={j.cat}/><GenBadge g={j.g}/></div>
             </div>
-            {sel&&<span style={{color:C.green,fontWeight:700,fontSize:18}}>✓</span>}
+            {sel&&<span style={{color:C.green,fontWeight:700,fontSize:18}}>v</span>}
           </div>;
         })}
       </div>
       <div style={{textAlign:"center",marginBottom:16,fontSize:13,
         color:selecionados.length===4?C.green:C.textSub,fontWeight:600}}>
-        {selecionados.length}/4 selecionados{selecionados.length===4&&" — pronto! 🎾"}
+        {selecionados.length}/4 selecionados{selecionados.length===4&&" — pronto! [P]"}
       </div>
       <div style={{display:"flex",gap:8}}>
         <button onClick={()=>onConfirmar(selecionados)} disabled={selecionados.length!==4}
@@ -561,7 +561,7 @@ function ModalConfirmarManual({jogo,onConfirmar,onClose,remetente}){
             color:selecionados.length===4?"#fff":C.textMut,border:"none",
             borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,
             cursor:selecionados.length===4?"pointer":"not-allowed",fontFamily:"inherit"}}>
-          ✅ Confirmar e avisar jogadores
+          [OK] Confirmar e avisar jogadores
         </button>
         <button onClick={onClose} style={{background:"#fff",border:`1.5px solid ${C.border}`,
           color:C.textSub,borderRadius:10,padding:"12px 16px",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
@@ -578,7 +578,7 @@ function ModalCancelar({jogo,onCancelar,onClose}){
     zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,
       width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
-      <div style={{fontSize:28,textAlign:"center",marginBottom:12}}>⚠️</div>
+      <div style={{fontSize:28,textAlign:"center",marginBottom:12}}>(!)</div>
       <h3 style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center",marginBottom:8}}>Cancelar jogo?</h3>
       <div style={{fontSize:13,color:C.textSub,textAlign:"center",marginBottom:20,lineHeight:1.6}}>
         {jogo.slot.hora} · {jogo.slot.quadra}<br/>
@@ -589,12 +589,12 @@ function ModalCancelar({jogo,onCancelar,onClose}){
         {conf.length>0&&<button onClick={()=>onCancelar(true)} style={{
           background:C.redBg,border:`1.5px solid ${C.red}`,color:C.red,
           borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-          ❌ Cancelar e avisar confirmados
+          [X] Cancelar e avisar confirmados
         </button>}
         <button onClick={()=>onCancelar(false)} style={{
           background:"#fff",border:`1.5px solid ${C.border}`,color:C.textSub,
           borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-          🚫 Cancelar silenciosamente
+           Cancelar silenciosamente
         </button>
         <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textMut,
           borderRadius:10,padding:"8px 0",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
@@ -622,12 +622,12 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
       <div style={{flex:1}}>
         <div style={{fontWeight:700,fontSize:13,color:C.text}}>Onda {jogo.ondaAtual} em andamento</div>
         <div style={{fontSize:11,color:C.textSub}}>{pend.length} aguardando · {conf.length}/4 confirmados · {fila.length} na fila
-          <span style={{marginLeft:8,color:C.textMut}}>· 🔄 auto 30s</span>
+          <span style={{marginLeft:8,color:C.textMut}}>·  auto 30s</span>
         </div>
       </div>
       <button onClick={onAtualizar} style={{background:"#fff",border:`1px solid ${C.greenBor}`,
         borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:11,color:C.green,fontFamily:"inherit",fontWeight:700}}>
-        🔄 Agora
+         Agora
       </button>
       <div style={{fontSize:22,fontWeight:700,color:C.green}}>{conf.length}<span style={{color:C.textMut,fontSize:16}}>/4</span></div>
     </div>}
@@ -635,11 +635,11 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
     {!fechado&&<div style={{marginBottom:12,display:"flex",gap:8,justifyContent:"flex-end"}}>
       <button onClick={onConfirmarManual} style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
         color:C.green,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"}}>
-        ✅ Confirmar manualmente
+        [OK] Confirmar manualmente
       </button>
       <button onClick={onCancelarJogo} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
         color:C.red,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"}}>
-        ✕ Cancelar jogo
+        x Cancelar jogo
       </button>
     </div>}
 
@@ -649,7 +649,7 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
         {conf.map(j=><span key={j.id} style={{display:"inline-flex",alignItems:"center",gap:4,
           background:C.greenBg,color:C.green,borderRadius:99,padding:"3px 10px",
-          fontSize:12,fontWeight:600,border:`1px solid ${C.greenBor}`}}>✅ {j.nome.split(" ")[0]}</span>)}
+          fontSize:12,fontWeight:600,border:`1px solid ${C.greenBor}`}}>[OK] {j.nome.split(" ")[0]}</span>)}
       </div>
     </div>}
 
@@ -675,33 +675,33 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
       <Btn variant="ghost" style={{width:"100%",color:"#25D366",borderColor:"#25D366"}}
         onClick={()=>onMsg({titulo:"Jogo Fechado — Enviar para todos",
           texto:buildMsgFechado(jogo.dupla1,jogo.dupla2,jogo.slot)})}>
-        📋 Copiar mensagem de confirmação
+         Copiar mensagem de confirmação
       </Btn>
     </div>}
 
-    {conf.length>0&&<SLabel label={`✅ Confirmados (${conf.length}/4)`} color={C.green}/>}
+    {conf.length>0&&<SLabel label={`[OK] Confirmados (${conf.length}/4)`} color={C.green}/>}
     {/* FIX: confirmados so tem botao NAO, sem agradecimento automatico */}
     {conf.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
       onNao={()=>onResponder(jogo.id,j.id,"nao")}/>)}
 
-    {pend.length>0&&<SLabel label={`⏳ Aguardando — Onda ${jogo.ondaAtual}`} color={C.yellow}/>}
+    {pend.length>0&&<SLabel label={` Aguardando — Onda ${jogo.ondaAtual}`} color={C.yellow}/>}
     {pend.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
       onSim={()=>onResponder(jogo.id,j.id,"sim")}
       onNao={()=>onResponder(jogo.id,j.id,"nao")}/>)}
 
-    {recus.length>0&&<SLabel label={`❌ Recusaram / Sem resposta (${recus.length})`} color={C.textMut}/>}
+    {recus.length>0&&<SLabel label={`[X] Recusaram / Sem resposta (${recus.length})`} color={C.textMut}/>}
     {recus.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
       onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}
 
-    {fila.length>0&&<SLabel label={`🔜 Na fila (${fila.length})`} color={C.textMut}/>}
+    {fila.length>0&&<SLabel label={` Na fila (${fila.length})`} color={C.textMut}/>}
     {fila.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
       onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}
 
-    {excl.length>0&&<><SLabel label="🚫 Excluídos" color={C.textMut}/>
+    {excl.length>0&&<><SLabel label=" Excluídos" color={C.textMut}/>
       {excl.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
         onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}</>}
 
-    {inter.length>0&&<><SLabel label="🙋 Interessados após fechamento" color="#7C3AED"/>
+    {inter.length>0&&<><SLabel label=" Interessados após fechamento" color="#7C3AED"/>
       {inter.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}</>}
   </div>;
 }
@@ -751,8 +751,8 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
   return <div style={{background:"#fff",border:`1.5px solid ${C.blue}`,borderRadius:16,
     padding:18,marginBottom:16,boxShadow:"0 4px 20px rgba(37,99,235,.08)"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <h3 style={{fontSize:15,fontWeight:700,color:C.text}}>➕ Novo Jogo</h3>
-      {onCancelar&&<button onClick={onCancelar} style={{background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:18}}>✕</button>}
+      <h3 style={{fontSize:15,fontWeight:700,color:C.text}}>+ Novo Jogo</h3>
+      {onCancelar&&<button onClick={onCancelar} style={{background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:18}}>x</button>}
     </div>
 
     <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:8}}>
@@ -783,7 +783,7 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
 
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
       <span style={{fontSize:10,color:C.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:.8}}>Gênero:</span>
-      {[{v:"Todos",l:"👥 Todos",c:"#374151"},{v:"M",l:"♂ Masc.",c:"#1D4ED8"},{v:"F",l:"♀ Fem.",c:"#BE185D"},{v:"Misto",l:"⚤ Misto",c:"#92400E"}].map(({v,l,c})=>(
+      {[{v:"Todos",l:" Todos",c:"#374151"},{v:"M",l:"M Masc.",c:"#1D4ED8"},{v:"F",l:"F Fem.",c:"#BE185D"},{v:"Misto",l:"M+F Misto",c:"#92400E"}].map(({v,l,c})=>(
         <button key={v} onClick={()=>setSlot(s=>({...s,genero:v,catsAlvo:[]}))} style={{
           background:slot.genero===v?c+"18":"#fff",border:`1.5px solid ${slot.genero===v?c:C.border}`,
           color:slot.genero===v?c:C.textSub,borderRadius:99,padding:"4px 12px",cursor:"pointer",
@@ -806,19 +806,19 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
             color:slot.catsAlvo.includes(c)?CAT_FG[c]:C.textSub,
             borderRadius:99,padding:"4px 12px",cursor:"pointer",fontFamily:"inherit",
             fontWeight:700,fontSize:11,transition:"all .15s"}}>
-            {slot.catsAlvo.includes(c)?"✓ ":""}{c}
+            {slot.catsAlvo.includes(c)?"v ":""}{c}
           </button>
         ))}
         {slot.catsAlvo.length>0&&<button onClick={()=>setSlot(s=>({...s,catsAlvo:[]}))} style={{
           background:"#fff",border:`1.5px solid ${C.redBor}`,color:C.red,
-          borderRadius:99,padding:"4px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11}}>✕</button>}
+          borderRadius:99,padding:"4px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11}}>x</button>}
       </div>
     </div>
 
     <div style={{marginBottom:12}}>
       <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Modo de envio</div>
       <div style={{display:"flex",gap:8}}>
-        {[{v:"automatico",l:"🤖 Automático (ranking)"},{v:"manual",l:"🔍 Selecionar por nome"}].map(({v,l})=>(
+        {[{v:"automatico",l:"🤖 Automático (ranking)"},{v:"manual",l:" Selecionar por nome"}].map(({v,l})=>(
           <button key={v} onClick={()=>setModoSelecao(v)} style={{
             flex:1,padding:"8px 0",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
             fontWeight:700,fontSize:12,transition:"all .15s",
@@ -835,14 +835,14 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
         {selecionadosManuais.length>0&&<span style={{color:C.green,marginLeft:8}}>· {selecionadosManuais.length} selecionado(s)</span>}
       </div>
       <div style={{position:"relative",marginBottom:8}}>
-        <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}>🔍</span>
+        <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}></span>
         <input value={buscaJog} onChange={e=>setBuscaJog(e.target.value)}
           placeholder="Buscar por nome..."
           style={{width:"100%",padding:"8px 12px 8px 34px",borderRadius:9,
             border:`1.5px solid ${buscaJog?C.blue:C.border}`,fontSize:13,
             fontFamily:"inherit",color:C.text,outline:"none",background:"#fff",boxSizing:"border-box"}}/>
         {buscaJog&&<button onClick={()=>setBuscaJog("")} style={{position:"absolute",right:10,
-          top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>✕</button>}
+          top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>x</button>}
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:280,overflowY:"auto"}}>
         {jogadores
@@ -858,7 +858,7 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
                 <div style={{fontSize:12,fontWeight:600,color:C.text}}>{j.nome}</div>
                 <div style={{display:"flex",gap:4,alignItems:"center"}}><CatPill cat={j.cat} size={9}/><GenBadge g={j.g}/></div>
               </div>
-              {sel&&<span style={{color:C.green,fontWeight:700,fontSize:16}}>✓</span>}
+              {sel&&<span style={{color:C.green,fontWeight:700,fontSize:16}}>v</span>}
             </div>;
           })}
       </div>
@@ -869,18 +869,18 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
             fontSize:11,fontWeight:600,border:`1px solid ${C.greenBor}`}}>
             {j.nome.split(" ")[0]}
             <button onClick={()=>setSelecionadosManuais(p=>p.filter(x=>x!==j.id))} style={{background:"none",
-              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>×</button>
+              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>x</button>
           </span>
         ))}
       </div>}
     </div>}
 
-    {modoSelecao==="automatico"&&<>
-
+    {modoSelecao==="automatico"&&candidatos.length>0&&<>
+      <div style={{marginBottom:12}}>
       <div style={{fontSize:10,color:C.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>
         Ranking — {candidatos.length} candidato(s)
-        {preConf.length>0&&<span style={{color:C.green,marginLeft:8}}>· {preConf.length} pré-confirmado(s)</span>}
-        {excluidos.length>0&&<span style={{color:C.red,marginLeft:8}}>· {excluidos.length} excluído(s)</span>}
+        {preConf.length>0&&<span style={{color:C.green,marginLeft:8}}>· {preConf.length} pre-confirmado(s)</span>}
+        {excluidos.length>0&&<span style={{color:C.red,marginLeft:8}}>· {excluidos.length} excluido(s)</span>}
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:320,overflowY:"auto"}}>
         {candidatos.slice(0,24).map((j,i)=>{
@@ -904,25 +904,25 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
                 border:`1.5px solid ${isPre?C.green:C.border}`,
                 background:isPre?C.greenBg:"#fff",color:isPre?C.green:C.textSub,
                 fontFamily:"inherit",whiteSpace:"nowrap",transition:"all .15s"}}>
-                {isPre?"✅ Conf.":"+ Conf."}
+                {isPre?"OK Conf.":"+ Conf."}
               </button>}
               {!isPre&&<button onClick={()=>setExcluidos(p=>p.includes(j.id)?p.filter(x=>x!==j.id):[...p,j.id])}
                 style={{fontSize:10,fontWeight:700,borderRadius:99,padding:"3px 9px",cursor:"pointer",
                   border:`1.5px solid ${isExcl?C.red:C.border}`,
                   background:isExcl?C.redBg:"#fff",color:isExcl?C.red:C.textMut,
                   fontFamily:"inherit",whiteSpace:"nowrap",transition:"all .15s"}}>
-                {isExcl?"✕ Excluído":"🚫 Excluir"}
+                {isExcl?"x Excluido":"Excluir"}
               </button>}
             </div>
           </div>;
         })}
       </div>
-    </div>}
+      </div>
 
     {preConf.length>0&&<div style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
       borderRadius:10,padding:"10px 12px",marginBottom:12}}>
       <div style={{fontSize:11,color:C.green,fontWeight:700,marginBottom:6}}>
-        ✅ {preConf.length} já confirmado(s) · faltam {vagasAbertas} vaga(s)
+        [OK] {preConf.length} já confirmado(s) · faltam {vagasAbertas} vaga(s)
       </div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
         {candidatos.filter(j=>preConf.includes(j.id)).map(j=>(
@@ -931,7 +931,7 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
             fontSize:11,fontWeight:600,border:`1px solid ${C.greenBor}`}}>
             {j.nome.split(" ")[0]}
             <button onClick={()=>setPreConf(p=>p.filter(x=>x!==j.id))} style={{background:"none",
-              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>×</button>
+              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>x</button>
           </span>
         ))}
       </div>
@@ -940,7 +940,7 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
     {excluidos.length>0&&<div style={{background:C.redBg,border:`1px solid ${C.redBor}`,
       borderRadius:10,padding:"10px 12px",marginBottom:12}}>
       <div style={{fontSize:11,color:C.red,fontWeight:700,marginBottom:6}}>
-        🚫 {excluidos.length} excluído(s) deste jogo
+         {excluidos.length} excluído(s) deste jogo
       </div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
         {candidatos.filter(j=>excluidos.includes(j.id)).map(j=>(
@@ -949,7 +949,7 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
             fontSize:11,fontWeight:600,border:`1px solid ${C.redBor}`}}>
             {j.nome.split(" ")[0]}
             <button onClick={()=>setExcluidos(p=>p.filter(x=>x!==j.id))} style={{background:"none",
-              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>×</button>
+              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>x</button>
           </span>
         ))}
       </div>
@@ -984,8 +984,8 @@ function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCance
       color:{(slot.data&&slot.hora&&slot.quadra&&(modoSelecao==="manual"?selecionadosManuais.length>0:slotOk))?"#fff":C.textMut},
       transition:"all .2s"}}>
       {modoSelecao==="manual"
-        ?selecionadosManuais.length>0?`⚡ Enviar para ${selecionadosManuais.length} jogador(es)`:"Selecione ao menos 1 jogador"
-        :preConf.length>0?`⚡ Buscar ${vagasAbertas} jogador(es)`:"⚡ Disparar Cascata"}
+        ?selecionadosManuais.length>0?` Enviar para ${selecionadosManuais.length} jogador(es)`:"Selecione ao menos 1 jogador"
+        :preConf.length>0?` Buscar ${vagasAbertas} jogador(es)`:" Disparar Cascata"}
     </button>
     {modoSelecao==="automatico"&&!slotOk&&<p style={{fontSize:11,color:C.textMut,textAlign:"center",marginTop:6}}>
       {!slot.data||!slot.hora||!slot.quadra?"Preencha data, horário e quadra":"Candidatos insuficientes"}
@@ -1016,11 +1016,11 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
       .then(data=>{
         const salvo=fromDB(data[0]);
         setJogadores(p=>[...p,salvo]);
-        fireToast(`${form.nome} cadastrado! ✅`);
+        fireToast(`${form.nome} cadastrado! [OK]`);
       })
       .catch(()=>{
         setJogadores(p=>[...p,{...form,id:`temp-${Date.now()}`}]);
-        fireToast(`${form.nome} cadastrado localmente ✅`);
+        fireToast(`${form.nome} cadastrado localmente [OK]`);
       });
     setShowForm(false);setForm(F0);
   }
@@ -1041,10 +1041,10 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
       indisponivel_ate:form.indisponivelAte||null,
     }).then(()=>{
       setJogadores(p=>p.map(j=>j.id===editando?{...j,...form,indisponivelAte:form.indisponivelAte||null}:j));
-      fireToast(`${form.nome} atualizado! ✅`);
+      fireToast(`${form.nome} atualizado! [OK]`);
     }).catch(()=>{
       setJogadores(p=>p.map(j=>j.id===editando?{...j,...form,indisponivelAte:form.indisponivelAte||null}:j));
-      fireToast(`${form.nome} atualizado localmente ✅`);
+      fireToast(`${form.nome} atualizado localmente [OK]`);
     });
     setShowForm(false);setEditando(null);setForm(F0);
   }
@@ -1066,18 +1066,18 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
     </div>
     <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
       {["M","F"].map(g=><Chip key={g} active={gf===g} onClick={()=>setGf(g)} color={C.blue}>
-        {g==="M"?"♂ Masculino":"♀ Feminino"} ({jogadores.filter(j=>j.g===g).length})
+        {g==="M"?"M Masculino":"F Feminino"} ({jogadores.filter(j=>j.g===g).length})
       </Chip>)}
     </div>
     <div style={{position:"relative",marginBottom:12}}>
-      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}>🔍</span>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}></span>
       <input value={buscaJog} onChange={e=>setBuscaJog(e.target.value)}
         placeholder="Buscar jogador por nome ou telefone..."
         style={{width:"100%",padding:"9px 12px 9px 36px",borderRadius:10,
           border:`1.5px solid ${buscaJog?C.blue:C.border}`,fontSize:13,
           fontFamily:"inherit",color:C.text,outline:"none",background:"#fff",boxSizing:"border-box"}}/>
       {buscaJog&&<button onClick={()=>setBuscaJog("")} style={{position:"absolute",right:10,
-        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>✕</button>}
+        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>x</button>}
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:6}}>
       {jogadores.filter(j=>gf?j.g===gf:true)
@@ -1089,11 +1089,11 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
             <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
               <span style={{fontWeight:600,fontSize:13,color:C.text}}>{j.nome}</span>
               {j.aceitaMisto&&<span style={{fontSize:9,color:"#92400E",fontWeight:600,background:"#FEF3C7",
-                border:"1px solid #FCD34D",borderRadius:99,padding:"1px 6px"}}>⚤ misto</span>}
+                border:"1px solid #FCD34D",borderRadius:99,padding:"1px 6px"}}>M+F misto</span>}
               {j.indisponivelAte&&j.indisponivelAte>=new Date().toISOString().split("T")[0]&&
                 <span style={{fontSize:9,color:C.red,fontWeight:600,background:C.redBg,
                   border:`1px solid ${C.redBor}`,borderRadius:99,padding:"1px 6px"}}>
-                  🚫 até {new Date(j.indisponivelAte+"T12:00:00").toLocaleDateString("pt-BR")}
+                   até {new Date(j.indisponivelAte+"T12:00:00").toLocaleDateString("pt-BR")}
                 </span>}
             </div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
@@ -1107,9 +1107,9 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
           </div>
           <div style={{display:"flex",gap:5,flexShrink:0}}>
             <button onClick={()=>abrirEdicao(j)} style={{background:C.blueBg,border:`1px solid #93C5FD`,
-              borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,color:C.blue,fontFamily:"inherit",fontWeight:600}}>✏️ Editar</button>
+              borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,color:C.blue,fontFamily:"inherit",fontWeight:600}}> Editar</button>
             <button onClick={()=>excluirJogador(j)} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
-              borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,color:C.red,fontFamily:"inherit",fontWeight:600}}>🗑️</button>
+              borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,color:C.red,fontFamily:"inherit",fontWeight:600}}></button>
           </div>
         </div>)}
     </div>
@@ -1143,19 +1143,19 @@ function JogadoresView({jogadores,setJogadores,fireToast}){
             background:form.aceitaMisto?C.yellowBg:"#fff",transition:"all .2s"}}>
             <input type="checkbox" checked={form.aceitaMisto} onChange={e=>setForm(f=>({...f,aceitaMisto:e.target.checked}))}
               style={{accentColor:C.yellow,width:16,height:16}}/>
-            <div><div style={{fontSize:13,fontWeight:600,color:form.aceitaMisto?C.yellow:C.textSub}}>⚤ Aceita jogos mistos</div>
+            <div><div style={{fontSize:13,fontWeight:600,color:form.aceitaMisto?C.yellow:C.textSub}}>M+F Aceita jogos mistos</div>
               <div style={{fontSize:11,color:C.textMut}}>Será convidado para partidas mistas</div></div>
           </label>
           <div style={{background:form.indisponivelAte?C.redBg:"#fff",
             border:`1.5px solid ${form.indisponivelAte?C.redBor:C.border}`,borderRadius:10,padding:"12px"}}>
-            <div style={{fontSize:13,fontWeight:600,color:form.indisponivelAte?C.red:C.textSub,marginBottom:6}}>🚫 Indisponível até</div>
+            <div style={{fontSize:13,fontWeight:600,color:form.indisponivelAte?C.red:C.textSub,marginBottom:6}}> Indisponível até</div>
             <div style={{fontSize:11,color:C.textMut,marginBottom:8}}>O jogador não receberá convites até esta data</div>
             <input type="date" style={{...inp,width:"100%"}} value={form.indisponivelAte||""}
               onChange={e=>setForm(f=>({...f,indisponivelAte:e.target.value}))}/>
             {form.indisponivelAte&&<button onClick={()=>setForm(f=>({...f,indisponivelAte:""}))}
               style={{marginTop:6,background:"#fff",border:`1px solid ${C.redBor}`,color:C.red,
                 borderRadius:8,padding:"4px 12px",cursor:"pointer",fontSize:11,fontFamily:"inherit",fontWeight:600}}>
-              ✕ Remover indisponibilidade
+              x Remover indisponibilidade
             </button>}
           </div>
           <div style={{display:"flex",gap:8}}>
@@ -1215,7 +1215,7 @@ function FrequenciaView({fireToast}){
       <p style={{fontSize:12,color:C.textSub}}>Histórico de participação</p>
     </div>
     <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-      {[{v:"sempre",l:"📊 Desde sempre"},{v:"30dias",l:"📅 Últimos 30 dias"},{v:"7dias",l:"🗓️ Últimos 7 dias"}].map(({v,l})=>(
+      {[{v:"sempre",l:" Desde sempre"},{v:"30dias",l:" Últimos 30 dias"},{v:"7dias",l:" Últimos 7 dias"}].map(({v,l})=>(
         <button key={v} onClick={()=>setPeriodo(v)} style={{
           background:periodo===v?C.blue+"18":"#fff",border:`1.5px solid ${periodo===v?C.blue:C.border}`,
           color:periodo===v?C.blue:C.textSub,borderRadius:99,padding:"6px 16px",cursor:"pointer",
@@ -1223,19 +1223,19 @@ function FrequenciaView({fireToast}){
       ))}
     </div>
     <div style={{position:"relative",marginBottom:16}}>
-      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}>🔍</span>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}></span>
       <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar jogador..."
         style={{width:"100%",padding:"9px 12px 9px 36px",borderRadius:10,
           border:`1.5px solid ${busca?C.blue:C.border}`,fontSize:13,fontFamily:"inherit",
           color:C.text,outline:"none",background:"#fff",boxSizing:"border-box"}}/>
       {busca&&<button onClick={()=>setBusca("")} style={{position:"absolute",right:10,
-        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>✕</button>}
+        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>x</button>}
     </div>
     {loading?<div style={{textAlign:"center",padding:"40px 0",color:C.textMut}}>
-      <div style={{fontSize:30,marginBottom:10}}>⏳</div><div>Carregando...</div>
+      <div style={{fontSize:30,marginBottom:10}}></div><div>Carregando...</div>
     </div>:dadosFiltrados.length===0
     ?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
-      <div style={{fontSize:40,marginBottom:12}}>📊</div>
+      <div style={{fontSize:40,marginBottom:12}}></div>
       <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>{busca?"Nenhum jogador encontrado":"Nenhum dado no período"}</div>
       <div style={{fontSize:13}}>{busca?"Tente outro nome":"Os dados aparecem após fechar jogos"}</div>
     </div>
@@ -1256,7 +1256,7 @@ function FrequenciaView({fireToast}){
                 borderRadius:99,padding:"2px 8px"}}>{j.taxa_confirmacao}% conf.</span>}
               {j.onda_media_confirmacao&&<span style={{fontSize:10,color:C.textMut,fontWeight:600,
                 background:C.bg,border:`1px solid ${C.border}`,borderRadius:99,padding:"2px 8px"}}>
-                ⚡ onda {j.onda_media_confirmacao} média
+                 onda {j.onda_media_confirmacao} média
               </span>}
             </div>
           </div>
@@ -1364,7 +1364,7 @@ export default function App(){
 
   useEffect(()=>{
     if("Notification" in window && Notification.permission==="default"){
-      setTimeout(()=>{ Notification.requestPermission().then(p=>{ if(p==="granted") fireToast("🔔 Notificações ativadas!"); }); },3000);
+      setTimeout(()=>{ Notification.requestPermission().then(p=>{ if(p==="granted") fireToast(" Notificações ativadas!"); }); },3000);
     }
   },[]);
 
@@ -1391,8 +1391,8 @@ export default function App(){
                 if(f.id!==p.jogador_id) return f;
                 if(f.status===p.resposta||p.resposta==="pendente") return f;
                 mudou=true;
-                if(p.resposta==="confirmado"){ setTimeout(()=>fireToast(`✅ ${f.nome.split(" ")[0]} confirmou!`),0); tocarSom("confirmado"); }
-                if(p.resposta==="recusou") setTimeout(()=>fireToast(`❌ ${f.nome.split(" ")[0]} recusou`),0);
+                if(p.resposta==="confirmado"){ setTimeout(()=>fireToast(`[OK] ${f.nome.split(" ")[0]} confirmou!`),0); tocarSom("confirmado"); }
+                if(p.resposta==="recusou") setTimeout(()=>fireToast(`[X] ${f.nome.split(" ")[0]} recusou`),0);
                 return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
               });
             });
@@ -1401,7 +1401,7 @@ export default function App(){
             if(conf.length===4&&j.status==="ativo"){
               const{sc,d1,d2}=melhorDuplas(conf);
               tocarSom("fechado");
-              setTimeout(()=>fireToast(`🎾 Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`),0);
+              setTimeout(()=>fireToast(`[P] Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`),0);
               return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
             }
             return{...j,fila:novaFila,dbId:jogoDbId};
@@ -1444,7 +1444,7 @@ export default function App(){
               );
               setTimeout(()=>{
                 enviarParaLista(paraConvidar,f=>buildMsgConvite(f,jg.slot,conf,remetenteRef.current,f.participacaoId))
-                  .then(({ok})=>fireToast(`⚡ Onda ${prox}: ${ok} convite(s)!`)).catch(()=>{});
+                  .then(({ok})=>fireToast(` Onda ${prox}: ${ok} convite(s)!`)).catch(()=>{});
               },500);
               return{...jg,fila:filaAtualizada,ondaAtual:prox,timer:TIMER_MAX};
             }
@@ -1508,7 +1508,7 @@ export default function App(){
         setTimeout(()=>{
           setHistorico(h=>[fechado,...h]);
           db.saveJogo(fechado).catch(()=>{});
-          fireToast(`🎾 Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`);
+          fireToast(`[P] Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`);
           const msgFechado=buildMsgFechado(d1,d2,jg.slot);
           // FIX: envia so para confirmados sem duplicatas
           const enviados=new Set();
@@ -1538,7 +1538,7 @@ export default function App(){
     const filaAtualizada=novaFila.map(j=>paraConvidar.find(p=>p.id===j.id)?{...j,status:"pendente",ondaEnviado:prox}:j);
     setTimeout(()=>{
       enviarParaLista(paraConvidar,j=>buildMsgConvite(j,prev.slot,conf,remetente,j.participacaoId))
-        .then(({ok,erros})=>{ if(erros>0) fireToast(`⚡ Onda ${prox}: ${ok} enviado(s), ${erros} erro(s)`); else fireToast(`⚡ Onda ${prox}: ${ok} convite(s)!`); }).catch(()=>{});
+        .then(({ok,erros})=>{ if(erros>0) fireToast(` Onda ${prox}: ${ok} enviado(s), ${erros} erro(s)`); else fireToast(` Onda ${prox}: ${ok} convite(s)!`); }).catch(()=>{});
     },500);
     return{...prev,fila:filaAtualizada,ondaAtual:prox,timer:TIMER_MAX};
   }
@@ -1568,7 +1568,7 @@ export default function App(){
         });
         if(!mudou){ fireToast("Nenhuma atualização"); return j; }
         const conf=novaFila.filter(x=>x.status==="confirmado");
-        fireToast(`✅ Atualizado! ${conf.length}/4 confirmados`);
+        fireToast(`[OK] Atualizado! ${conf.length}/4 confirmados`);
         if(conf.length===4&&j.status==="ativo"){
           const{sc,d1,d2}=melhorDuplas(conf);
           return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc,dbId:jogoDbId};
@@ -1583,14 +1583,14 @@ export default function App(){
     if(!jg||ids.length!==4) return;
     const jogadoresConf=await supaFetch(`jogadores?select=id,nome,telefone&id=in.(${ids.join(",")})`).catch(()=>[]);
     const lista=Array.isArray(jogadoresConf)?jogadoresConf:[];
-    const msg=`🎾 *JOGO CONFIRMADO!*\n\n📅 ${diaSemana(jg.slot.data)}, ${fmtData(jg.slot.data)}\n🕐 ${jg.slot.hora}\n🏟️ ${jg.slot.quadra}\n\n${lista.map(j=>`• ${j.nome}`).join("\n")}`;
+    const msg=`[P] *JOGO CONFIRMADO!*\n\n ${diaSemana(jg.slot.data)}, ${fmtData(jg.slot.data)}\n ${jg.slot.hora}\n ${jg.slot.quadra}\n\n${lista.map(j=>`- ${j.nome}`).join("\n")}`;
     for(const j of lista){ await enviarWhatsApp(j.telefone,msg).catch(()=>{}); }
     const novaFila=jg.fila.map(f=>({...f,status:ids.includes(f.id)?"confirmado":f.status==="confirmado"?"recusou":f.status}));
     const conf=novaFila.filter(f=>f.status==="confirmado");
     const{sc,d1,d2}=melhorDuplas(conf);
     setJogosAtivos(prev=>prev.map(j=>j.id===jogoId?{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc}:j));
     setConfirmarManualModal(null);
-    fireToast("🎾 Jogo confirmado e mensagens enviadas!");
+    fireToast("[P] Jogo confirmado e mensagens enviadas!");
     tocarSom("fechado");
   }
 
@@ -1599,7 +1599,7 @@ export default function App(){
     if(!jg) return;
     if(avisarConfirmados){
       const conf=jg.fila.filter(j=>j.status==="confirmado");
-      const msg=`Olá! Infelizmente o jogo de ${jg.slot.hora} na ${jg.slot.quadra} do dia ${fmtData(jg.slot.data)} foi cancelado. Pedimos desculpas! 🎾${remetente?`\n\n_${remetente}_`:""}`;
+      const msg=`Olá! Infelizmente o jogo de ${jg.slot.hora} na ${jg.slot.quadra} do dia ${fmtData(jg.slot.data)} foi cancelado. Pedimos desculpas! [P]${remetente?`\n\n_${remetente}_`:""}`;
       try{
         const ids=conf.map(j=>j.id).join(",");
         if(ids){
@@ -1660,11 +1660,11 @@ export default function App(){
         const pendentesComId=pendentes.map(j=>({...j,participacaoId:mapaIds[j.id]}));
         enviarParaLista(pendentesComId,j=>buildMsgConvite(j,slot,jaConf,remetente,j.participacaoId))
           .then(({ok,erros})=>{
-            if(erros>0) fireToast(`⚡ Onda 1: ${ok} enviado(s), ${erros} erro(s)`);
-            else fireToast(`⚡ Onda 1: ${ok} convite(s) enviado(s)!`);
+            if(erros>0) fireToast(` Onda 1: ${ok} enviado(s), ${erros} erro(s)`);
+            else fireToast(` Onda 1: ${ok} convite(s) enviado(s)!`);
           }).catch(()=>fireToast("Erro ao enviar convites",false));
       } else {
-        fireToast("⚡ Cascata disparada!");
+        fireToast(" Cascata disparada!");
       }
     }catch(e){
       console.log("Erro ao criar jogo:",e);
@@ -1712,13 +1712,13 @@ export default function App(){
           {window._pwaPrompt&&<button onClick={()=>{window._pwaPrompt.prompt();}} style={{
             background:C.green,color:"#fff",border:"none",borderRadius:8,
             padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginRight:4}}>
-            📲 Instalar
+             Instalar
           </button>}
           {[
-            {id:"jogos",icon:"🎾",txt:`Jogos${jogosAtivos.length?` (${jogosAtivos.length})`:""}`},
-            {id:"historico",icon:"📋",txt:`Histórico${historico.length?` (${historico.length})`:""}`},
-            {id:"frequencia",icon:"📊",txt:"Frequência"},
-            {id:"jogadores",icon:"👥",txt:"Jogadores"},
+            {id:"jogos",icon:"[P]",txt:`Jogos${jogosAtivos.length?` (${jogosAtivos.length})`:""}`},
+            {id:"historico",icon:"",txt:`Histórico${historico.length?` (${historico.length})`:""}`},
+            {id:"frequencia",icon:"",txt:"Frequência"},
+            {id:"jogadores",icon:"",txt:"Jogadores"},
           ].map(n=>{
             const active=tela===n.id;
             return <button key={n.id} onClick={()=>setTela(n.id)} style={{
@@ -1740,8 +1740,8 @@ export default function App(){
             <div>
               <h1 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:2}}>Jogos Ativos</h1>
               <div style={{fontSize:12,color:C.textSub,display:"flex",gap:12,flexWrap:"wrap"}}>
-                {ativos>0&&<span style={{color:C.yellow,fontWeight:600}}>⏳ {ativos} em andamento</span>}
-                {fechados>0&&<span style={{color:C.green,fontWeight:600}}>✅ {fechados} fechado(s)</span>}
+                {ativos>0&&<span style={{color:C.yellow,fontWeight:600}}> {ativos} em andamento</span>}
+                {fechados>0&&<span style={{color:C.green,fontWeight:600}}>[OK] {fechados} fechado(s)</span>}
                 {jogosAtivos.length===0&&<span>Nenhum jogo ativo</span>}
               </div>
             </div>
@@ -1749,7 +1749,7 @@ export default function App(){
               background:C.green,color:"#fff",border:"none",borderRadius:10,
               padding:"10px 18px",fontSize:13,fontWeight:700,cursor:"pointer",
               fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>
-              ＋ Novo Jogo
+              + Novo Jogo
             </button>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,
@@ -1766,7 +1766,7 @@ export default function App(){
           onDispararCascata={dispararCascata} onCancelar={()=>setMostrarForm(false)}/>}
 
         {jogosVisiveis.length===0&&!mostrarForm&&<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
-          <div style={{fontSize:40,marginBottom:12}}>🎾</div>
+          <div style={{fontSize:40,marginBottom:12}}>[P]</div>
           <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>Nenhum jogo em andamento</div>
           <div style={{fontSize:13,marginBottom:16}}>Clique em "Novo Jogo" para começar</div>
         </div>}
@@ -1795,10 +1795,10 @@ export default function App(){
                 {jg.status==="ativo"&&<TimerRing seg={jg.timer} total={TIMER_MAX}/>}
                 {jg.status==="fechado"&&<span style={{fontSize:12,color:C.green,fontWeight:700,
                   background:C.greenBg,border:`1px solid ${C.greenBor}`,borderRadius:99,padding:"4px 12px"}}>
-                  ✅ Fechado
+                  [OK] Fechado
                 </span>}
                 <button onClick={()=>setJogoAbertoId(null)} style={{background:"none",border:"none",
-                  cursor:"pointer",color:C.textMut,fontSize:18,padding:"2px 4px"}}>✕</button>
+                  cursor:"pointer",color:C.textMut,fontSize:18,padding:"2px 4px"}}>x</button>
               </div>
             </div>
             <CascataPanel jogo={jg} onResponder={responder} onMsg={setMsgModal} remetente={remetente}
@@ -1815,21 +1815,21 @@ export default function App(){
             <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Histórico</h2>
             <p style={{fontSize:12,color:C.textSub}}>{historico.length} jogo(s)</p>
           </div>
-          <Btn variant="ghost" onClick={()=>setTela("jogos")}>← Voltar</Btn>
+          <Btn variant="ghost" onClick={()=>setTela("jogos")}><- Voltar</Btn>
         </div>
         {historico.length===0?<div style={{textAlign:"center",padding:"60px 0",color:C.textMut}}>
-          <div style={{fontSize:40,marginBottom:12}}>📋</div>
+          <div style={{fontSize:40,marginBottom:12}}></div>
           <div style={{fontWeight:700,fontSize:16,color:C.text}}>Nenhum jogo registrado</div>
         </div>:historico.map((h,i)=><div key={i} style={{background:"#fff",border:`1px solid ${C.border}`,
           borderRadius:14,padding:14,marginBottom:10,borderLeft:`3px solid ${C.green}`}}>
           <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
-            {[`📅 ${diaSemana(h.slot.data)}, ${fmtData(h.slot.data)}`,`🕐 ${h.slot.hora}`,`🏟️ ${h.slot.quadra}`].map((t,j)=>(
+            {[` ${diaSemana(h.slot.data)}, ${fmtData(h.slot.data)}`,` ${h.slot.hora}`,` ${h.slot.quadra}`].map((t,j)=>(
               <span key={j} style={{fontSize:11,background:C.bg,border:`1px solid ${C.border}`,
                 borderRadius:99,padding:"3px 9px",color:C.textSub}}>{t}</span>
             ))}
             {h.catDefinida&&<span style={{fontSize:11,color:CAT_FG[h.catDefinida],fontWeight:700,
               background:CAT_BG[h.catDefinida],border:`1px solid ${CAT_BOR[h.catDefinida]}`,
-              borderRadius:99,padding:"3px 9px"}}>🏅 {h.catDefinida}</span>}
+              borderRadius:99,padding:"3px 9px"}}> {h.catDefinida}</span>}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:8,alignItems:"center",marginBottom:10}}>
             <div style={{background:C.bg,borderRadius:8,padding:"8px 10px"}}>
@@ -1842,7 +1842,7 @@ export default function App(){
           </div>
           <Btn variant="ghost" style={{fontSize:11,padding:"5px 12px"}}
             onClick={()=>setMsgModal({titulo:"Reenviar confirmação",texto:buildMsgFechado(h.dupla1,h.dupla2,h.slot)})}>
-            📱 Reenviar mensagem
+             Reenviar mensagem
           </Btn>
         </div>)}
       </div>}
@@ -1850,7 +1850,7 @@ export default function App(){
       {tela==="frequencia"&&<FrequenciaView fireToast={fireToast}/>}
       {tela==="jogadores"&&(loadingJogadores
         ?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
-          <div style={{fontSize:30,marginBottom:10}}>⏳</div><div>Carregando jogadores...</div>
+          <div style={{fontSize:30,marginBottom:10}}></div><div>Carregando jogadores...</div>
         </div>
         :<JogadoresView jogadores={jogadores} setJogadores={setJogadores} fireToast={fireToast}/>
       )}
