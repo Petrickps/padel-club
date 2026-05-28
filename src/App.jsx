@@ -1,1 +1,1876 @@
-export default function App(){ return null; }
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+
+// ─── SUPABASE ─────────────────────────────────────────────────────────────────
+const SUPA_URL = "https://hyjvqjrnpobujwvsqsrn.supabase.co";
+const SUPA_KEY = "sb_publishable_yevc2A-MWUy26r1xoF7kiQ_u2UZWyBJ";
+
+function getSupabaseClient() {
+  try {
+    const sup = window.supabase || {};
+    const { createClient } = sup;
+    if (!createClient) return null;
+    return createClient(SUPA_URL, SUPA_KEY);
+  } catch { return null; }
+}
+
+// ─── WHATSAPP via Edge Function ───────────────────────────────────────────────
+async function enviarWhatsApp(telefone, mensagem) {
+  const res = await fetch(`${SUPA_URL}/functions/v1/enviar-whatsapp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${SUPA_KEY}`,
+      "apikey": SUPA_KEY,
+    },
+    body: JSON.stringify({ number: telefone, text: mensagem }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function enviarParaLista(jogadores, buildMsg) {
+  const resultados = await Promise.allSettled(
+    jogadores.map(j => enviarWhatsApp(j.tel, buildMsg(j)))
+  );
+  const erros = resultados.filter(r => r.status === "rejected").length;
+  const ok    = resultados.filter(r => r.status === "fulfilled").length;
+  return { ok, erros };
+}
+
+async function supaFetch(path, options={}) {
+  const res = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      "apikey": SUPA_KEY,
+      "Authorization": `Bearer ${SUPA_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": options.prefer || "return=representation",
+      ...options.headers,
+    },
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// ─── BANCO ────────────────────────────────────────────────────────────────────
+const db = {
+  async getJogadores() {
+    return supaFetch("jogadores?select=*&ativo=eq.true&order=nome.asc");
+  },
+  async addJogador(j) {
+    return supaFetch("jogadores", {
+      method: "POST",
+      body: JSON.stringify({
+        nome: j.nome, telefone: j.tel, genero: j.g,
+        categoria: j.cat,
+        dias_pref: j.dias, horas_pref: j.hrs,
+        aceita_misto: j.aceitaMisto, ativo: true,
+        indisponivel_ate: j.indisponivelAte||null,
+      }),
+    });
+  },
+  async updateJogador(id, data) {
+    return supaFetch(`jogadores?id=eq.${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+  async deleteJogador(id) {
+    return supaFetch(`jogadores?id=eq.${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ativo: false }),
+    });
+  },
+  async saveJogo(jogo) {
+    const [jogoSalvo] = await supaFetch("jogos", {
+      method: "POST",
+      body: JSON.stringify({
+        data: jogo.slot.data, hora: jogo.slot.hora,
+        quadra: jogo.slot.quadra, genero: jogo.slot.genero,
+        categoria: jogo.catDefinida, status: jogo.status,
+        ondas_usadas: jogo.ondaAtual,
+      }),
+    });
+    const participacoes = jogo.fila
+      .filter(j => ["confirmado","recusou","expirado"].includes(j.status))
+      .map(j => ({
+        jogo_id: jogoSalvo.id,
+        jogador_id: j.id,
+        resposta: j.status,
+        onda: j.ondaEnviado || 1,
+        respondido_em: j.respostaEm ? new Date().toISOString() : null,
+      }));
+    if (participacoes.length > 0) {
+      await supaFetch("participacoes", {
+        method: "POST",
+        body: JSON.stringify(participacoes),
+      });
+    }
+    return jogoSalvo;
+  },
+  // Salva pendentes e retorna array com IDs das participacoes
+  async savePendentes(jogoDbId, jogadores) {
+    if (!jogadores.length) return [];
+    const participacoes = jogadores.map(j => ({
+      jogo_id: jogoDbId,
+      jogador_id: j.id,
+      resposta: "pendente",
+      onda: j.ondaEnviado || 1,
+    }));
+    const resultado = await supaFetch("participacoes", {
+      method: "POST",
+      body: JSON.stringify(participacoes),
+    });
+    return Array.isArray(resultado) ? resultado : [];
+  },
+  async criarJogo(slot, catDefinida) {
+    const [jogo] = await supaFetch("jogos", {
+      method: "POST",
+      body: JSON.stringify({
+        data: slot.data, hora: slot.hora,
+        quadra: slot.quadra, genero: slot.genero,
+        categoria: catDefinida, status: "ativo",
+      }),
+    });
+    return jogo;
+  },
+  async getFrequencia() {
+    return supaFetch("frequencia_jogadores?select=*&order=jogos_confirmados.desc");
+  },
+};
+
+function fromDB(j) {
+  return {
+    id: j.id, nome: j.nome, tel: j.telefone,
+    g: j.genero, cat: j.categoria,
+    dias: j.dias_pref || [], hrs: j.horas_pref || [],
+    aceitaMisto: j.aceita_misto || false,
+    indisponivelAte: j.indisponivel_ate || null,
+    ultimoConviteEm: j.ultimo_convite_em || null,
+  };
+}
+
+// ─── CONSTANTES ───────────────────────────────────────────────────────────────
+const HORAS = Array.from({length:28},(_,i)=>{
+  const h=Math.floor(i/2)+8, m=i%2===0?"00":"30";
+  return `${String(h).padStart(2,"0")}:${m}`;
+});
+const QUADRAS = ["Quadra Ademicon","Quadra Sulita","Quadra 3","Quadra Odontotop"];
+const CATS_M   = ["2ª","3ª","4ª","5ª","6ª","Iniciante"];
+const CATS_F   = ["3ª","4ª","5ª","6ª","Iniciante"];
+const CATS_ALL = ["2ª","3ª","4ª","5ª","6ª","Iniciante"];
+const NIVEL    = {"2ª":90,"3ª":75,"4ª":60,"5ª":45,"6ª":30,"Iniciante":15};
+const TIMER_MAX = 15 * 60;
+
+const CAT_BG  = {"2ª":"#FFE8E8","3ª":"#FFF0DC","4ª":"#FFFACC","5ª":"#DCFAEC","6ª":"#DCF0FF","Iniciante":"#F0DCFF"};
+const CAT_FG  = {"2ª":"#B91C1C","3ª":"#92400E","4ª":"#78620A","5ª":"#065F46","6ª":"#1E40AF","Iniciante":"#6B21A8"};
+const CAT_BOR = {"2ª":"#FCA5A5","3ª":"#FCD34D","4ª":"#FDE68A","5ª":"#6EE7B7","6ª":"#93C5FD","Iniciante":"#D8B4FE"};
+
+const C = {
+  bg:"#F7F8FA", surface:"#FFFFFF", border:"#E2E8F0",
+  text:"#1A202C", textSub:"#64748B", textMut:"#94A3B8",
+  green:"#059669", greenBg:"#ECFDF5", greenBor:"#6EE7B7",
+  red:"#DC2626",   redBg:"#FEF2F2",  redBor:"#FCA5A5",
+  yellow:"#D97706",yellowBg:"#FFFBEB",yellowBor:"#FCD34D",
+  blue:"#2563EB",  blueBg:"#EFF6FF",
+  orange:"#EA580C",orangeBg:"#FFF7ED",
+};
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+function fmtData(iso){if(!iso)return"";const[y,m,d]=iso.split("-");return`${d}/${m}/${y}`;}
+function diaSemana(iso){
+  if(!iso) return "";
+  const dias=["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
+  return dias[new Date(iso+"T12:00:00").getDay()];
+}
+function fmtTempo(s){const m=Math.floor(s/60),sec=s%60;return`${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;}
+
+function scoreJogador(j, dn, hr, metricas={}) {
+  let score = 0;
+  if (j.dias && j.dias.includes(dn)) score += 20;
+  if (j.hrs && j.hrs.includes(hr)) score += 20;
+  const m = metricas[j.id] || {};
+  const diaSemanaNum = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].indexOf(dn);
+  if (m.dias_confirmados && m.dias_confirmados.includes(diaSemanaNum)) score += 30;
+  if (m.horas_confirmadas && m.horas_confirmadas.includes(hr)) score += 30;
+  if (m.taxa_confirmacao) score += Math.round(m.taxa_confirmacao * 0.3);
+  if (m.onda_media_confirmacao) {
+    score += Math.max(0, 10 - (m.onda_media_confirmacao - 1) * 3);
+  }
+  if (m.ultimo_jogo) {
+    score += Math.min(20, Math.floor((Date.now() - new Date(m.ultimo_jogo)) / 86400000));
+  } else {
+    score += 20;
+  }
+  return score;
+}
+
+function filtrarCandidatos(jogadores, genero, catsAlvo, dn, hr, metricas={}) {
+  const hoje = new Date().toISOString().split("T")[0];
+  const agora = Date.now();
+  const JANELA_4H = 4 * 60 * 60 * 1000;
+  return jogadores.filter(j => {
+    if (j.indisponivelAte && j.indisponivelAte >= hoje) return false;
+    if (j.ultimoConviteEm && (agora - new Date(j.ultimoConviteEm).getTime()) < JANELA_4H) return false;
+    // FIX: genero "Todos" nao filtra por sexo
+    if (genero === "M" && j.g !== "M") return false;
+    if (genero === "F" && j.g !== "F") return false;
+    if (genero === "Misto" && !j.aceitaMisto) return false;
+    // FIX: categoria — so filtra se tiver categorias selecionadas
+    if (catsAlvo.length > 0 && !catsAlvo.includes(j.cat)) return false;
+    return true;
+  }).map(j => ({...j, score: scoreJogador(j, dn, hr, metricas)}))
+    .sort((a, b) => b.score - a.score);
+}
+
+function melhorDuplas(g4) {
+  const opts=[[[g4[0],g4[1]],[g4[2],g4[3]]],[[g4[0],g4[2]],[g4[1],g4[3]]]];
+  return opts.reduce((best,[d1,d2])=>{
+    const diff=Math.abs((NIVEL[d1[0].cat]+NIVEL[d1[1].cat])/2-(NIVEL[d2[0].cat]+NIVEL[d2[1].cat])/2);
+    const sc=Math.round(100-diff);
+    return sc>best.sc?{sc,d1,d2}:best;
+  },{sc:-1,d1:[],d2:[]});
+}
+
+// FIX: buildMsgConvite agora aceita participacaoId para incluir botoes SIM/NAO
+function buildMsgConvite(j, slot, confirmados, remetente, participacaoId) {
+  const ds = diaSemana(slot.data);
+  const nome = j.nome.split(" ")[0];
+  let linhaConf = "";
+  if (confirmados.length === 1) {
+    linhaConf = `\n*${confirmados[0].nome.split(" ")[0]}* já confirmou.`;
+  } else if (confirmados.length >= 2) {
+    const nomes = confirmados.map(c => c.nome.split(" ")[0]);
+    const ultimo = nomes.pop();
+    linhaConf = `\n*${nomes.join(", ")}* e *${ultimo}* já confirmaram.`;
+  }
+  const rem = remetente ? `${remetente} aqui, tudo bem?! ` : "";
+  let msg = `Oi, ${nome}! ${rem}[P]\n\nTenho um jogo para você:\n\n *${ds}, ${fmtData(slot.data)}*\n *${slot.hora}*\n *${slot.quadra}*${linhaConf}\n\nVocê topa?`;
+  // FIX: adiciona botoes SIM/NAO se tiver participacaoId
+  if (participacaoId) {
+    const base = `${SUPA_URL}/functions/v1/responder`;
+    msg += `\n\n[OK] SIM → ${base}?p=${participacaoId}&r=sim\n[X] NÃO → ${base}?p=${participacaoId}&r=nao`;
+  } else {
+    msg += `\n\nResponda *SIM* ou *NÃO* [P]`;
+  }
+  return msg;
+}
+
+function buildMsgAgradecimento(j, remetente) {
+  const nome = j.nome.split(" ")[0];
+  const rem = remetente || "";
+  return `Oi, ${nome}! Tudo bem 😊\n\nObrigado pela resposta! Te aviso do próximo jogo [P]${rem ? `\n\n_${rem}_` : ""}`;
+}
+
+function buildMsgFechado(d1, d2, slot) {
+  const ds = diaSemana(slot.data);
+  const todos = [...(d1||[]),...(d2||[])];
+  return `[P] *JOGO CONFIRMADO!*\n\n ${ds}, ${fmtData(slot.data)}\n ${slot.hora}\n ${slot.quadra}\n\n${todos.map(j=>`- ${j.nome}`).join("\n")}`;
+}
+
+// ─── ATOMS ────────────────────────────────────────────────────────────────────
+function Avatar({nome,size=34,g,highlight}){
+  const gc=g==="F"?"#BE185D":g==="M"?"#1D4ED8":"#92400E";
+  const bg=g==="F"?"#FCE7F3":g==="M"?"#DBEAFE":"#FEF3C7";
+  return <div style={{width:size,height:size,borderRadius:"50%",flexShrink:0,
+    background:highlight?gc:bg,border:`2px solid ${highlight?gc:C.border}`,
+    display:"flex",alignItems:"center",justifyContent:"center",
+    fontSize:size*.38,fontWeight:700,color:highlight?"#fff":gc,transition:"all .3s"}}>{nome[0]}</div>;
+}
+function CatPill({cat,size=10}){
+  if (!cat || !CAT_BG[cat]) return null;
+  return <span style={{background:CAT_BG[cat],color:CAT_FG[cat],border:`1px solid ${CAT_BOR[cat]}`,
+    fontSize:size,fontWeight:700,padding:"2px 7px",borderRadius:99,whiteSpace:"nowrap"}}>{cat}</span>;
+}
+function GenBadge({g}){
+  const cfg={M:{c:"#1D4ED8",l:"M"},F:{c:"#BE185D",l:"F"},Misto:{c:"#92400E",l:"M+F"},Todos:{c:"#374151",l:""}};
+  const{c,l}=cfg[g]||cfg.M;
+  return <span style={{color:c,fontSize:11,fontWeight:700}}>{l}</span>;
+}
+function ScoreDot({score}){
+  const c=score>=80?C.green:score>=50?C.yellow:C.textMut;
+  return <div style={{display:"flex",alignItems:"center",gap:4}}>
+    <div style={{width:5,height:5,borderRadius:"50%",background:c,flexShrink:0}}/>
+    <div style={{width:28,height:3,background:C.border,borderRadius:2,overflow:"hidden"}}>
+      <div style={{width:`${score}%`,height:"100%",background:c,borderRadius:2}}/>
+    </div>
+    <span style={{fontSize:9,color:c,fontWeight:600}}>{score>=80?"dia+hora":score>=50?"dia ok":"fora"}</span>
+  </div>;
+}
+function Chip({children,active,onClick,color,disabled}){
+  const col=color||C.green;
+  return <button onClick={!disabled?onClick:undefined} style={{
+    background:active?col+"18":"#fff",border:`1.5px solid ${active?col:C.border}`,
+    color:active?col:C.textSub,borderRadius:99,padding:"5px 12px",fontSize:11,fontWeight:600,
+    cursor:disabled?"default":"pointer",fontFamily:"inherit",transition:"all .15s",
+    whiteSpace:"nowrap",opacity:disabled?.4:1}}>{children}</button>;
+}
+function Btn({children,onClick,variant="primary",disabled,style={}}){
+  const v={
+    primary:{background:C.green,color:"#fff",padding:"11px 20px",fontSize:13,opacity:disabled?.4:1},
+    ghost:{background:"#fff",border:`1.5px solid ${C.border}`,color:C.textSub,padding:"9px 14px",fontSize:12},
+    danger:{background:"#fff",border:`1.5px solid ${C.red}`,color:C.red,padding:"7px 12px",fontSize:12},
+    orange:{background:C.orange,color:"#fff",padding:"9px 16px",fontSize:12,opacity:disabled?.4:1},
+  };
+  return <button onClick={!disabled?onClick:undefined} style={{
+    border:"none",cursor:disabled?"not-allowed":"pointer",fontFamily:"inherit",
+    fontWeight:700,borderRadius:10,transition:"all .18s",...v[variant],...style}}>{children}</button>;
+}
+function StatusPill({status}){
+  const cfg={
+    pendente:   {c:C.yellow,  bg:C.yellowBg, i:"",l:"Aguardando"},
+    confirmado: {c:C.green,   bg:C.greenBg,  i:"[OK]",l:"Confirmado"},
+    recusou:    {c:C.red,     bg:C.redBg,    i:"[X]",l:"Recusou"},
+    expirado:   {c:C.textMut, bg:"#F8FAFC",  i:"",l:"Sem resposta"},
+    aguardando: {c:C.textMut, bg:"#F8FAFC",  i:"",l:"Na fila"},
+    interessado:{c:"#7C3AED", bg:"#F5F3FF",  i:"",l:"Interessado"},
+    excluido_cat:{c:C.textMut,bg:"#F8FAFC",  i:"",l:"Excluído"},
+  };
+  const{c,bg,i,l}=cfg[status]||cfg.aguardando;
+  return <span style={{fontSize:10,color:c,fontWeight:700,background:bg,
+    border:`1px solid ${c}33`,borderRadius:99,padding:"3px 8px",whiteSpace:"nowrap"}}>{i} {l}</span>;
+}
+function SLabel({label,color}){
+  return <div style={{fontSize:10,color:color||C.textMut,fontWeight:700,
+    textTransform:"uppercase",letterSpacing:.9,marginTop:10,marginBottom:5}}>{label}</div>;
+}
+function TimerRing({seg,total,size=54}){
+  const r=(size-6)/2,circ=2*Math.PI*r,pct=Math.max(0,seg/total);
+  const col=pct>.5?C.green:pct>.25?C.yellow:C.red;
+  const mins=Math.floor(seg/60);
+  const label=mins>0?`${mins}m`:fmtTempo(seg);
+  return <div style={{position:"relative",width:size,height:size,flexShrink:0}}>
+    <svg width={size} height={size} style={{transform:"rotate(-90deg)"}}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.border} strokeWidth={4}/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth={4}
+        strokeDasharray={circ} strokeDashoffset={circ*(1-pct)} strokeLinecap="round"
+        style={{transition:"stroke-dashoffset 1s linear,stroke .4s"}}/>
+    </svg>
+    <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+      alignItems:"center",justifyContent:"center"}}>
+      <span style={{fontSize:10,fontWeight:700,color:col,lineHeight:1}}>{label}</span>
+      <span style={{fontSize:7,color:C.textMut,marginTop:1}}>ONDA</span>
+    </div>
+  </div>;
+}
+
+// ─── SOM ──────────────────────────────────────────────────────────────────────
+function tocarSom(tipo="confirmado") {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    if (tipo === "confirmado") {
+      osc.frequency.setValueAtTime(520, ctx.currentTime);
+      osc.frequency.setValueAtTime(780, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+    } else if (tipo === "fechado") {
+      osc.frequency.setValueAtTime(520, ctx.currentTime);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15);
+      osc.frequency.setValueAtTime(780, ctx.currentTime + 0.30);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.6);
+    } else {
+      osc.frequency.setValueAtTime(400, ctx.currentTime);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+    }
+  } catch {}
+}
+
+// ─── MODAIS ───────────────────────────────────────────────────────────────────
+function MsgModal({titulo,texto,tel,onClose,fireToast}){
+  const[ok,setOk]=useState(false);
+  function copiar(){navigator.clipboard.writeText(texto).then(()=>{setOk(true);fireToast("Copiado! ");setTimeout(()=>setOk(false),2000);});}
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",
+    zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:22,
+      width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.15)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:"#25D366"}}> {titulo}</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:20}}>x</button>
+      </div>
+      {tel&&<div style={{fontSize:11,color:C.textSub,marginBottom:10}}>Para: <strong style={{color:C.text}}>{tel}</strong></div>}
+      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",
+        fontSize:12,lineHeight:1.75,whiteSpace:"pre-wrap",color:C.text,marginBottom:14,
+        fontFamily:"monospace",maxHeight:260,overflowY:"auto"}}>{texto}</div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={copiar} style={{flex:1,border:ok?`1.5px solid ${C.green}`:"none",cursor:"pointer",
+          fontFamily:"inherit",fontWeight:700,borderRadius:10,fontSize:13,padding:"11px 0",
+          background:ok?"#fff":"#25D366",color:ok?C.green:"#fff",transition:"all .2s"}}>
+          {ok?"[OK] Copiado!":" Copiar mensagem"}
+        </button>
+        <Btn variant="ghost" onClick={onClose}>Fechar</Btn>
+      </div>
+    </div>
+  </div>;
+}
+
+function AlertaOperador({alerta,onClose,onNovoSlot}){
+  const{jogador,slot}=alerta;
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",
+    zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,
+      width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
+      <div style={{fontSize:28,textAlign:"center",marginBottom:12}}>(!)</div>
+      <h3 style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center",marginBottom:8}}>Jogo já fechado!</h3>
+      <div style={{background:C.yellowBg,border:`1px solid ${C.yellowBor}`,borderRadius:10,
+        padding:"12px 14px",marginBottom:16,fontSize:13,color:C.text,lineHeight:1.6}}>
+        <strong>{jogador.nome}</strong> respondeu <strong>SIM</strong> mas o jogo já estava fechado.<br/><br/>
+         {diaSemana(slot.data)}, {fmtData(slot.data)} · {slot.hora} · {slot.quadra}<br/><br/>
+        Há outro horário ou quadra disponível para este jogador?
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onNovoSlot} style={{flex:1,background:C.green,color:"#fff",border:"none",
+          borderRadius:10,padding:"11px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+          [OK] Criar novo jogo
+        </button>
+        <button onClick={onClose} style={{background:"#fff",border:`1.5px solid ${C.border}`,color:C.textSub,
+          borderRadius:10,padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+          Não
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+// FIX: CandRow — botao NAO manual nao envia agradecimento automatico, so registra
+function CandRow({j,onSim,onNao,onMsg,slot,confirmados=[],remetente=""}){
+  return <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",
+    borderRadius:10,background:"#fff",border:`1.5px solid ${onSim?C.yellowBg:C.border}`,
+    marginBottom:5,flexWrap:"wrap",transition:"border .2s"}}>
+    <Avatar nome={j.nome} size={30} g={j.g} highlight={j.status==="confirmado"}/>
+    <div style={{flex:1,minWidth:90}}>
+      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2,flexWrap:"wrap"}}>
+        <span style={{fontWeight:600,fontSize:12,color:C.text}}>{j.nome}</span>
+        <GenBadge g={j.g}/>
+      </div>
+      <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+        <CatPill cat={j.cat}/>
+        <ScoreDot score={j.score||0}/>
+        {j.ondaEnviado&&<span style={{fontSize:9,color:C.textMut,fontWeight:600}}>Onda {j.ondaEnviado}</span>}
+      </div>
+    </div>
+    <StatusPill status={j.status}/>
+    <div style={{display:"flex",gap:4,flexShrink:0}}>
+      <button onClick={()=>onMsg({titulo:`Convite — ${j.nome.split(" ")[0]}`,
+        texto:buildMsgConvite(j,slot,confirmados,remetente,j.participacaoId),tel:j.tel})}
+        style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:7,
+          padding:"4px 8px",cursor:"pointer",fontSize:12,color:C.textSub,fontFamily:"inherit",fontWeight:600}}></button>
+      {onSim&&<>
+        <button onClick={onSim} style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
+          borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,color:C.green,fontFamily:"inherit",fontWeight:700}}>SIM</button>
+        <button onClick={onNao} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
+          borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,color:C.red,fontFamily:"inherit",fontWeight:700}}>NÃO</button>
+      </>}
+    </div>
+  </div>;
+}
+
+function JogoCard({jogo,isAtivo,onClick,onFechar}){
+  const conf=jogo.fila.filter(j=>j.status==="confirmado").length;
+  const pend=jogo.fila.filter(j=>j.status==="pendente").length;
+  const fechado=jogo.status==="fechado";
+  const semCandidatos=jogo.status==="sem_candidatos";
+  const borderColor=fechado?C.green:semCandidatos?C.red:isAtivo?"#2563EB":C.border;
+  const statusColor=fechado?C.green:semCandidatos?C.red:pend>0?C.yellow:C.textMut;
+  const statusLabel=fechado?"[OK] Fechado":semCandidatos?"(!) Sem candidatos":pend>0?` ${pend} aguardando`:" Pausado";
+  return <div onClick={onClick} style={{background:isAtivo?"#F0F7FF":"#fff",border:`2px solid ${borderColor}`,
+    borderRadius:14,padding:"14px 16px",cursor:"pointer",transition:"all .2s",
+    boxShadow:isAtivo?"0 4px 20px rgba(37,99,235,.12)":"none"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:10}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:700,fontSize:13,color:C.text,marginBottom:3}}>{jogo.slot.hora} · {jogo.slot.quadra}</div>
+        <div style={{fontSize:11,color:C.textSub}}>
+          {diaSemana(jogo.slot.data)}, {fmtData(jogo.slot.data)}
+          {jogo.catDefinida&&<span style={{marginLeft:6,fontWeight:600,color:CAT_FG[jogo.catDefinida]}}>{jogo.catDefinida}</span>}
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        {!fechado&&!semCandidatos&&<TimerRing seg={jogo.timer} total={TIMER_MAX} size={46}/>}
+        <button onClick={e=>{e.stopPropagation();onFechar();}} style={{background:"none",border:"none",
+          cursor:"pointer",color:C.textMut,fontSize:16,padding:"2px 4px",lineHeight:1}}>x</button>
+      </div>
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+      <div style={{flex:1,height:6,background:C.bg,borderRadius:3,overflow:"hidden"}}>
+        <div style={{width:`${conf*25}%`,height:"100%",background:C.green,borderRadius:3,transition:"width .4s"}}/>
+      </div>
+      <span style={{fontSize:12,fontWeight:700,color:conf===4?C.green:C.text,flexShrink:0}}>{conf}/4</span>
+    </div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span style={{fontSize:11,color:statusColor,fontWeight:600}}>{statusLabel}</span>
+      <span style={{fontSize:11,color:isAtivo?C.blue:C.textMut,fontWeight:600}}>{isAtivo?"v aberto":"> ver"}</span>
+    </div>
+  </div>;
+}
+
+function ModalConfirmarManual({jogo,onConfirmar,onClose,remetente}){
+  const jaConf=jogo.fila.filter(j=>j.status==="confirmado").map(j=>j.id);
+  const [selecionados,setSelecionados]=useState(jaConf);
+  function toggleJogador(id){
+    setSelecionados(prev=>prev.includes(id)?prev.filter(x=>x!==id):prev.length<4?[...prev,id]:prev);
+  }
+  const jogadoresFila=jogo.fila.filter(j=>j.status!=="excluido_cat");
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",
+    zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,
+      width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
+      <div style={{fontSize:28,textAlign:"center",marginBottom:8}}>[OK]</div>
+      <h3 style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center",marginBottom:4}}>Confirmar manualmente</h3>
+      <p style={{fontSize:12,color:C.textSub,textAlign:"center",marginBottom:16}}>
+        Selecione os 4 jogadores que vão participar.
+      </p>
+      <div style={{background:C.bg,borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:12,color:C.textSub,textAlign:"center"}}>
+        {diaSemana(jogo.slot.data)}, {fmtData(jogo.slot.data)} · {jogo.slot.hora} · {jogo.slot.quadra}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+        {jogadoresFila.map(j=>{
+          const sel=selecionados.includes(j.id);
+          const bloqueado=!sel&&selecionados.length>=4;
+          return <div key={j.id} onClick={()=>!bloqueado&&toggleJogador(j.id)}
+            style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+              borderRadius:10,border:`1.5px solid ${sel?C.green:C.border}`,
+              background:sel?C.greenBg:"#fff",cursor:bloqueado?"not-allowed":"pointer",
+              opacity:bloqueado?.4:1,transition:"all .15s"}}>
+            <Avatar nome={j.nome} size={32} g={j.g} highlight={sel}/>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:600,fontSize:13,color:C.text}}>{j.nome}</div>
+              <div style={{display:"flex",gap:4}}><CatPill cat={j.cat}/><GenBadge g={j.g}/></div>
+            </div>
+            {sel&&<span style={{color:C.green,fontWeight:700,fontSize:18}}>v</span>}
+          </div>;
+        })}
+      </div>
+      <div style={{textAlign:"center",marginBottom:16,fontSize:13,
+        color:selecionados.length===4?C.green:C.textSub,fontWeight:600}}>
+        {selecionados.length}/4 selecionados{selecionados.length===4&&" — pronto! [P]"}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>onConfirmar(selecionados)} disabled={selecionados.length!==4}
+          style={{flex:1,background:selecionados.length===4?C.green:"#E2E8F0",
+            color:selecionados.length===4?"#fff":C.textMut,border:"none",
+            borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,
+            cursor:selecionados.length===4?"pointer":"not-allowed",fontFamily:"inherit"}}>
+          [OK] Confirmar e avisar jogadores
+        </button>
+        <button onClick={onClose} style={{background:"#fff",border:`1.5px solid ${C.border}`,
+          color:C.textSub,borderRadius:10,padding:"12px 16px",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+function ModalCancelar({jogo,onCancelar,onClose}){
+  const conf=jogo.fila.filter(j=>j.status==="confirmado");
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",
+    zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,
+      width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
+      <div style={{fontSize:28,textAlign:"center",marginBottom:12}}>(!)</div>
+      <h3 style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center",marginBottom:8}}>Cancelar jogo?</h3>
+      <div style={{fontSize:13,color:C.textSub,textAlign:"center",marginBottom:20,lineHeight:1.6}}>
+        {jogo.slot.hora} · {jogo.slot.quadra}<br/>
+        {diaSemana(jogo.slot.data)}, {fmtData(jogo.slot.data)}
+        {conf.length>0&&<><br/><span style={{color:C.text,fontWeight:600}}>{conf.length} confirmado(s)</span></>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {conf.length>0&&<button onClick={()=>onCancelar(true)} style={{
+          background:C.redBg,border:`1.5px solid ${C.red}`,color:C.red,
+          borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+          [X] Cancelar e avisar confirmados
+        </button>}
+        <button onClick={()=>onCancelar(false)} style={{
+          background:"#fff",border:`1.5px solid ${C.border}`,color:C.textSub,
+          borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+           Cancelar silenciosamente
+        </button>
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textMut,
+          borderRadius:10,padding:"8px 0",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+          Voltar
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+// ─── CASCATA PANEL ────────────────────────────────────────────────────────────
+function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJogo,onConfirmarManual}){
+  const conf=jogo.fila.filter(j=>j.status==="confirmado");
+  const pend=jogo.fila.filter(j=>j.status==="pendente");
+  const recus=jogo.fila.filter(j=>j.status==="recusou"||j.status==="expirado");
+  const fila=jogo.fila.filter(j=>j.status==="aguardando");
+  const excl=jogo.fila.filter(j=>j.status==="excluido_cat");
+  const inter=jogo.fila.filter(j=>j.status==="interessado");
+  const fechado=jogo.status==="fechado";
+
+  return <div style={{marginTop:12}}>
+    {!fechado&&<div style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
+      borderRadius:10,padding:"10px 14px",marginBottom:8,
+      display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,fontSize:13,color:C.text}}>Onda {jogo.ondaAtual} em andamento</div>
+        <div style={{fontSize:11,color:C.textSub}}>{pend.length} aguardando · {conf.length}/4 confirmados · {fila.length} na fila
+          <span style={{marginLeft:8,color:C.textMut}}>·  auto 30s</span>
+        </div>
+      </div>
+      <button onClick={onAtualizar} style={{background:"#fff",border:`1px solid ${C.greenBor}`,
+        borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:11,color:C.green,fontFamily:"inherit",fontWeight:700}}>
+         Agora
+      </button>
+      <div style={{fontSize:22,fontWeight:700,color:C.green}}>{conf.length}<span style={{color:C.textMut,fontSize:16}}>/4</span></div>
+    </div>}
+
+    {!fechado&&<div style={{marginBottom:12,display:"flex",gap:8,justifyContent:"flex-end"}}>
+      <button onClick={onConfirmarManual} style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
+        color:C.green,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"}}>
+        [OK] Confirmar manualmente
+      </button>
+      <button onClick={onCancelarJogo} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
+        color:C.red,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"}}>
+        x Cancelar jogo
+      </button>
+    </div>}
+
+    {conf.length>0&&!fechado&&<div style={{background:"#fff",border:`1px solid ${C.border}`,
+      borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+      <div style={{fontSize:10,color:C.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:6}}>Confirmados</div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {conf.map(j=><span key={j.id} style={{display:"inline-flex",alignItems:"center",gap:4,
+          background:C.greenBg,color:C.green,borderRadius:99,padding:"3px 10px",
+          fontSize:12,fontWeight:600,border:`1px solid ${C.greenBor}`}}>[OK] {j.nome.split(" ")[0]}</span>)}
+      </div>
+    </div>}
+
+    {fechado&&jogo.dupla1&&<div style={{background:"#fff",border:`1.5px solid ${C.greenBor}`,
+      borderRadius:12,padding:14,marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:10,color:C.green,fontWeight:700,textTransform:"uppercase",letterSpacing:.9}}>
+          Duplas · Equilíbrio {jogo.scoreEquilibrio}pts
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:8,alignItems:"center",marginBottom:12}}>
+        {[jogo.dupla1,jogo.dupla2].map((dupla,di)=><div key={di} style={{background:C.bg,borderRadius:8,padding:"9px 12px"}}>
+          <div style={{fontSize:9,color:C.green,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:6}}>Dupla {di+1}</div>
+          {dupla.map(j=><div key={j.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+            <Avatar nome={j.nome} size={24} g={j.g} highlight/>
+            <div><div style={{fontSize:11,fontWeight:600,color:C.text}}>{j.nome}</div>
+              <div style={{display:"flex",gap:3}}><CatPill cat={j.cat} size={9}/><GenBadge g={j.g}/></div>
+            </div>
+          </div>)}
+        </div>)}
+        <div style={{fontWeight:700,fontSize:15,color:C.textMut,textAlign:"center"}}>VS</div>
+      </div>
+      <Btn variant="ghost" style={{width:"100%",color:"#25D366",borderColor:"#25D366"}}
+        onClick={()=>onMsg({titulo:"Jogo Fechado — Enviar para todos",
+          texto:buildMsgFechado(jogo.dupla1,jogo.dupla2,jogo.slot)})}>
+         Copiar mensagem de confirmação
+      </Btn>
+    </div>}
+
+    {conf.length>0&&<SLabel label={`[OK] Confirmados (${conf.length}/4)`} color={C.green}/>}
+    {/* FIX: confirmados so tem botao NAO, sem agradecimento automatico */}
+    {conf.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+      onNao={()=>onResponder(jogo.id,j.id,"nao")}/>)}
+
+    {pend.length>0&&<SLabel label={` Aguardando — Onda ${jogo.ondaAtual}`} color={C.yellow}/>}
+    {pend.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+      onSim={()=>onResponder(jogo.id,j.id,"sim")}
+      onNao={()=>onResponder(jogo.id,j.id,"nao")}/>)}
+
+    {recus.length>0&&<SLabel label={`[X] Recusaram / Sem resposta (${recus.length})`} color={C.textMut}/>}
+    {recus.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+      onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}
+
+    {fila.length>0&&<SLabel label={` Na fila (${fila.length})`} color={C.textMut}/>}
+    {fila.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+      onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}
+
+    {excl.length>0&&<><SLabel label=" Excluídos" color={C.textMut}/>
+      {excl.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
+        onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}</>}
+
+    {inter.length>0&&<><SLabel label=" Interessados após fechamento" color="#7C3AED"/>
+      {inter.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}</>}
+  </div>;
+}
+
+// ─── FORM NOVO JOGO ───────────────────────────────────────────────────────────
+function FormNovoJogo({jogadores,metricas={},remetente,onDispararCascata,onCancelar}){
+  const [slot,setSlot]=useState({data:"",hora:"",quadra:"",genero:"Todos",catsAlvo:[]});
+  const [preConf,setPreConf]=useState([]);
+  const [excluidos,setExcluidos]=useState([]);
+  const [tamanhoOnda,setTamanhoOnda]=useState(8);
+  const [buscaJog,setBuscaJog]=useState("");
+  const [selecionadosManuais,setSelecionadosManuais]=useState([]);
+  const [modoSelecao,setModoSelecao]=useState("automatico"); // "automatico" | "manual"
+  const today=new Date().toISOString().split("T")[0];
+  const diaNome=diaSemana(slot.data);
+  const candidatos=useMemo(()=>slot.data&&slot.hora
+    ?filtrarCandidatos(jogadores,slot.genero,slot.catsAlvo,diaNome,slot.hora,metricas):[]
+    ,[jogadores,slot.genero,slot.catsAlvo,diaNome,slot.data,slot.hora,metricas]);
+  const vagasAbertas=4-preConf.length;
+  const candSemPreConf=candidatos.filter(j=>!preConf.includes(j.id)&&!excluidos.includes(j.id));
+  const slotOk=slot.data&&slot.hora&&slot.quadra&&candidatos.length>0&&
+    (preConf.length===4||candSemPreConf.length>=Math.max(1,vagasAbertas));
+  const inp={background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,
+    padding:"8px 12px",color:C.text,fontFamily:"inherit",fontSize:13,
+    width:"100%",outline:"none",boxSizing:"border-box",minWidth:0,maxWidth:"100%"};
+
+  function toggleCat(c){setSlot(s=>({...s,catsAlvo:s.catsAlvo.includes(c)?s.catsAlvo.filter(x=>x!==c):[...s.catsAlvo,c]}));}
+
+  function disparar(){
+    if(modoSelecao==="manual"){
+      // Modo manual: usa jogadores selecionados pelo nome
+      const sels=jogadores.filter(j=>selecionadosManuais.includes(j.id))
+        .map(j=>({...j,score:0}));
+      const fila=sels.map((j,i)=>({...j,ordem:i,status:i<tamanhoOnda?"pendente":"aguardando",ondaEnviado:i<tamanhoOnda?1:null,respostaEm:null}));
+      onDispararCascata({slot,jaConf:[],fila,preConf:[],tamanhoOnda});
+      return;
+    }
+    const idsPreConf=new Set(preConf);
+    const idsExcl=new Set(excluidos);
+    const jaConf=candidatos.filter(j=>idsPreConf.has(j.id))
+      .map(j=>({...j,status:"confirmado",ondaEnviado:null,respostaEm:"Pré-confirmado"}));
+    const fila=candidatos.filter(j=>!idsPreConf.has(j.id)&&!idsExcl.has(j.id))
+      .map((j,i)=>({...j,ordem:i,status:i<tamanhoOnda?"pendente":"aguardando",ondaEnviado:i<tamanhoOnda?1:null,respostaEm:null}));
+    onDispararCascata({slot,jaConf,fila,preConf,tamanhoOnda});
+  }
+
+  return <div style={{background:"#fff",border:`1.5px solid ${C.blue}`,borderRadius:16,
+    padding:18,marginBottom:16,boxShadow:"0 4px 20px rgba(37,99,235,.08)"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <h3 style={{fontSize:15,fontWeight:700,color:C.text}}>+ Novo Jogo</h3>
+      {onCancelar&&<button onClick={onCancelar} style={{background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:18}}>x</button>}
+    </div>
+
+    <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:8}}>
+      <div>
+        <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Data</div>
+        <input type="date" min={today}
+          style={{...inp,display:"block",width:"100%",maxWidth:"100%",minWidth:0,WebkitAppearance:"none",appearance:"none"}}
+          value={slot.data} onChange={e=>setSlot(s=>({...s,data:e.target.value}))}/>
+        {slot.data&&<div style={{fontSize:10,color:C.green,marginTop:3,fontWeight:600}}>{diaSemana(slot.data)}</div>}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        <div>
+          <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Horário</div>
+          <select style={inp} value={slot.hora} onChange={e=>setSlot(s=>({...s,hora:e.target.value}))}>
+            <option value="">Selecione...</option>
+            {HORAS.map(h=><option key={h}>{h}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Quadra</div>
+          <select style={inp} value={slot.quadra} onChange={e=>setSlot(s=>({...s,quadra:e.target.value}))}>
+            <option value="">Selecione...</option>
+            {QUADRAS.map(q=><option key={q} value={q}>{q}</option>)}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
+      <span style={{fontSize:10,color:C.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:.8}}>Gênero:</span>
+      {[{v:"Todos",l:" Todos",c:"#374151"},{v:"M",l:"M Masc.",c:"#1D4ED8"},{v:"F",l:"F Fem.",c:"#BE185D"},{v:"Misto",l:"M+F Misto",c:"#92400E"}].map(({v,l,c})=>(
+        <button key={v} onClick={()=>setSlot(s=>({...s,genero:v,catsAlvo:[]}))} style={{
+          background:slot.genero===v?c+"18":"#fff",border:`1.5px solid ${slot.genero===v?c:C.border}`,
+          color:slot.genero===v?c:C.textSub,borderRadius:99,padding:"4px 12px",cursor:"pointer",
+          fontFamily:"inherit",fontWeight:600,fontSize:11,transition:"all .15s"}}>{l}</button>
+      ))}
+    </div>
+
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>
+        Categoria(s) alvo
+        <span style={{color:C.textMut,fontWeight:400,textTransform:"none",letterSpacing:0,marginLeft:6}}>
+          — {slot.catsAlvo.length===0?"definida pelo 1º que aceitar":`${slot.catsAlvo.length} selecionada(s)`}
+        </span>
+      </div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {(slot.genero==="F"?CATS_F:CATS_ALL).map(c=>(
+          <button key={c} onClick={()=>toggleCat(c)} style={{
+            background:slot.catsAlvo.includes(c)?CAT_BG[c]:"#fff",
+            border:`1.5px solid ${slot.catsAlvo.includes(c)?CAT_BOR[c]:C.border}`,
+            color:slot.catsAlvo.includes(c)?CAT_FG[c]:C.textSub,
+            borderRadius:99,padding:"4px 12px",cursor:"pointer",fontFamily:"inherit",
+            fontWeight:700,fontSize:11,transition:"all .15s"}}>
+            {slot.catsAlvo.includes(c)?"v ":""}{c}
+          </button>
+        ))}
+        {slot.catsAlvo.length>0&&<button onClick={()=>setSlot(s=>({...s,catsAlvo:[]}))} style={{
+          background:"#fff",border:`1.5px solid ${C.redBor}`,color:C.red,
+          borderRadius:99,padding:"4px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11}}>x</button>}
+      </div>
+    </div>
+
+    <div style={{marginBottom:12}}>
+      <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Modo de envio</div>
+      <div style={{display:"flex",gap:8}}>
+        {[{v:"automatico",l:"🤖 Automático (ranking)"},{v:"manual",l:" Selecionar por nome"}].map(({v,l})=>(
+          <button key={v} onClick={()=>setModoSelecao(v)} style={{
+            flex:1,padding:"8px 0",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
+            fontWeight:700,fontSize:12,transition:"all .15s",
+            background:modoSelecao===v?C.blue:"#fff",
+            color:modoSelecao===v?"#fff":C.textSub,
+            border:`1.5px solid ${modoSelecao===v?C.blue:C.border}`}}>{l}</button>
+        ))}
+      </div>
+    </div>
+
+    {modoSelecao==="manual"&&<div style={{marginBottom:12}}>
+      <div style={{fontSize:10,color:C.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>
+        Buscar jogadores
+        {selecionadosManuais.length>0&&<span style={{color:C.green,marginLeft:8}}>· {selecionadosManuais.length} selecionado(s)</span>}
+      </div>
+      <div style={{position:"relative",marginBottom:8}}>
+        <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}></span>
+        <input value={buscaJog} onChange={e=>setBuscaJog(e.target.value)}
+          placeholder="Buscar por nome..."
+          style={{width:"100%",padding:"8px 12px 8px 34px",borderRadius:9,
+            border:`1.5px solid ${buscaJog?C.blue:C.border}`,fontSize:13,
+            fontFamily:"inherit",color:C.text,outline:"none",background:"#fff",boxSizing:"border-box"}}/>
+        {buscaJog&&<button onClick={()=>setBuscaJog("")} style={{position:"absolute",right:10,
+          top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>x</button>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:280,overflowY:"auto"}}>
+        {jogadores
+          .filter(j=>buscaJog?j.nome.toLowerCase().includes(buscaJog.toLowerCase()):true)
+          .slice(0,20)
+          .map(j=>{
+            const sel=selecionadosManuais.includes(j.id);
+            return <div key={j.id} onClick={()=>setSelecionadosManuais(p=>sel?p.filter(x=>x!==j.id):[...p,j.id])}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,cursor:"pointer",
+                background:sel?C.greenBg:"#fff",border:`1.5px solid ${sel?C.greenBor:C.border}`,transition:"all .15s"}}>
+              <Avatar nome={j.nome} size={28} g={j.g} highlight={sel}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{j.nome}</div>
+                <div style={{display:"flex",gap:4,alignItems:"center"}}><CatPill cat={j.cat} size={9}/><GenBadge g={j.g}/></div>
+              </div>
+              {sel&&<span style={{color:C.green,fontWeight:700,fontSize:16}}>v</span>}
+            </div>;
+          })}
+      </div>
+      {selecionadosManuais.length>0&&<div style={{marginTop:8,display:"flex",gap:5,flexWrap:"wrap"}}>
+        {jogadores.filter(j=>selecionadosManuais.includes(j.id)).map(j=>(
+          <span key={j.id} style={{display:"inline-flex",alignItems:"center",gap:4,
+            background:C.greenBg,color:C.green,borderRadius:99,padding:"3px 10px",
+            fontSize:11,fontWeight:600,border:`1px solid ${C.greenBor}`}}>
+            {j.nome.split(" ")[0]}
+            <button onClick={()=>setSelecionadosManuais(p=>p.filter(x=>x!==j.id))} style={{background:"none",
+              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>x</button>
+          </span>
+        ))}
+      </div>}
+    </div>}
+
+    {modoSelecao==="automatico"&&candidatos.length>0&&<>
+      <div style={{marginBottom:12}}>
+      <div style={{fontSize:10,color:C.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>
+        Ranking — {candidatos.length} candidato(s)
+        {preConf.length>0&&<span style={{color:C.green,marginLeft:8}}>· {preConf.length} pre-confirmado(s)</span>}
+        {excluidos.length>0&&<span style={{color:C.red,marginLeft:8}}>· {excluidos.length} excluido(s)</span>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:320,overflowY:"auto"}}>
+        {candidatos.slice(0,24).map((j,i)=>{
+          const isPre=preConf.includes(j.id);
+          const isExcl=excluidos.includes(j.id);
+          return <div key={j.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:9,
+            background:isExcl?C.redBg:isPre?C.greenBg:"#fff",
+            border:`1.5px solid ${isExcl?C.redBor:isPre?C.greenBor:C.border}`,opacity:isExcl?.6:1}}>
+            <div style={{fontSize:10,color:C.textMut,fontWeight:700,width:16,textAlign:"right",flexShrink:0}}>#{i+1}</div>
+            <Avatar nome={j.nome} size={28} g={j.g} highlight={isPre}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,fontWeight:600,color:C.text}}>{j.nome}</div>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}><CatPill cat={j.cat} size={9}/><ScoreDot score={j.score}/></div>
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              {!isExcl&&<button onClick={()=>{
+                if(isPre) setPreConf(p=>p.filter(x=>x!==j.id));
+                else if(preConf.length<3) setPreConf(p=>[...p,j.id]);
+              }} style={{fontSize:10,fontWeight:700,borderRadius:99,padding:"3px 9px",
+                cursor:(!isPre&&preConf.length>=3)?"not-allowed":"pointer",
+                border:`1.5px solid ${isPre?C.green:C.border}`,
+                background:isPre?C.greenBg:"#fff",color:isPre?C.green:C.textSub,
+                fontFamily:"inherit",whiteSpace:"nowrap",transition:"all .15s"}}>
+                {isPre?"OK Conf.":"+ Conf."}
+              </button>}
+              {!isPre&&<button onClick={()=>setExcluidos(p=>p.includes(j.id)?p.filter(x=>x!==j.id):[...p,j.id])}
+                style={{fontSize:10,fontWeight:700,borderRadius:99,padding:"3px 9px",cursor:"pointer",
+                  border:`1.5px solid ${isExcl?C.red:C.border}`,
+                  background:isExcl?C.redBg:"#fff",color:isExcl?C.red:C.textMut,
+                  fontFamily:"inherit",whiteSpace:"nowrap",transition:"all .15s"}}>
+                {isExcl?"x Excluido":"Excluir"}
+              </button>}
+            </div>
+          </div>;
+        })}
+      </div>
+      </div>
+
+    {preConf.length>0&&<div style={{background:C.greenBg,border:`1px solid ${C.greenBor}`,
+      borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+      <div style={{fontSize:11,color:C.green,fontWeight:700,marginBottom:6}}>
+        [OK] {preConf.length} já confirmado(s) · faltam {vagasAbertas} vaga(s)
+      </div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {candidatos.filter(j=>preConf.includes(j.id)).map(j=>(
+          <span key={j.id} style={{display:"inline-flex",alignItems:"center",gap:4,
+            background:"#fff",color:C.green,borderRadius:99,padding:"3px 10px",
+            fontSize:11,fontWeight:600,border:`1px solid ${C.greenBor}`}}>
+            {j.nome.split(" ")[0]}
+            <button onClick={()=>setPreConf(p=>p.filter(x=>x!==j.id))} style={{background:"none",
+              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>x</button>
+          </span>
+        ))}
+      </div>
+    </div>}
+
+    {excluidos.length>0&&<div style={{background:C.redBg,border:`1px solid ${C.redBor}`,
+      borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+      <div style={{fontSize:11,color:C.red,fontWeight:700,marginBottom:6}}>
+         {excluidos.length} excluído(s) deste jogo
+      </div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {candidatos.filter(j=>excluidos.includes(j.id)).map(j=>(
+          <span key={j.id} style={{display:"inline-flex",alignItems:"center",gap:4,
+            background:"#fff",color:C.red,borderRadius:99,padding:"3px 10px",
+            fontSize:11,fontWeight:600,border:`1px solid ${C.redBor}`}}>
+            {j.nome.split(" ")[0]}
+            <button onClick={()=>setExcluidos(p=>p.filter(x=>x!==j.id))} style={{background:"none",
+              border:"none",cursor:"pointer",color:C.textMut,fontSize:13,lineHeight:1,padding:0}}>x</button>
+          </span>
+        ))}
+      </div>
+    </div>}
+
+    </>}
+
+    <div style={{marginBottom:12}}>
+      <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Convites por onda</div>
+      <div style={{display:"flex",gap:8}}>
+        {[8,16].map(n=>(
+          <button key={n} onClick={()=>setTamanhoOnda(n)} style={{
+            flex:1,padding:"8px 0",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
+            fontWeight:700,fontSize:13,transition:"all .15s",
+            background:tamanhoOnda===n?C.green:"#fff",
+            color:tamanhoOnda===n?"#fff":C.textSub,
+            border:`1.5px solid ${tamanhoOnda===n?C.green:C.border}`}}>
+            {n} convites
+          </button>
+        ))}
+      </div>
+      <div style={{fontSize:11,color:C.textMut,marginTop:4}}>
+        {tamanhoOnda===8?"Padrão — menor risco de dupla confirmação":"Maior alcance por onda — mais agressivo"}
+      </div>
+    </div>
+
+    {(()=>{
+      const ok=slot.data&&slot.hora&&slot.quadra&&(modoSelecao==="manual"?selecionadosManuais.length>0:slotOk);
+      return <button onClick={disparar} disabled={!ok} style={{width:"100%",padding:12,fontSize:14,
+        fontWeight:700,borderRadius:10,border:"none",
+        cursor:ok?"pointer":"not-allowed",
+        fontFamily:"inherit",
+        background:ok?C.green:"#E2E8F0",
+        color:ok?"#fff":C.textMut,
+        transition:"all .2s"}}>
+        {modoSelecao==="manual"
+          ?selecionadosManuais.length>0?`Enviar para ${selecionadosManuais.length} jogador(es)`:"Selecione ao menos 1 jogador"
+          :preConf.length>0?`Buscar ${vagasAbertas} jogador(es)`:"Disparar Cascata"}
+      </button>;
+    })()}
+    {modoSelecao==="automatico"&&!slotOk&&<p style={{fontSize:11,color:C.textMut,textAlign:"center",marginTop:6}}>
+      {!slot.data||!slot.hora||!slot.quadra?"Preencha data, horário e quadra":"Candidatos insuficientes"}
+    </p>}
+  </div>;
+}
+
+// ─── JOGADORES VIEW ───────────────────────────────────────────────────────────
+function JogadoresView({jogadores,setJogadores,fireToast}){
+  const [gf,setGf]=useState("M");
+  const [buscaJog,setBuscaJog]=useState("");
+  const [showForm,setShowForm]=useState(false);
+  const DIAS=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
+  // FIX: categoria unica — cats e um array mas so salva o primeiro
+  const F0={nome:"",g:"M",cat:"4ª",tel:"",dias:[],hrs:[],aceitaMisto:false,indisponivelAte:""};
+  const [form,setForm]=useState(F0);
+  const inp={background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,
+    padding:"9px 12px",color:C.text,fontFamily:"inherit",fontSize:13,width:"100%",outline:"none"};
+  function toggleArr(f,v){setForm(x=>({...x,[f]:x[f].includes(v)?x[f].filter(i=>i!==v):[...x[f],v]}));}
+
+  function salvar(){
+    if(!form.nome.trim()||!form.tel.trim()){fireToast("Preencha nome e telefone",false);return;}
+    if(!form.cat){fireToast("Selecione uma categoria",false);return;}
+    const telLimpo=form.tel.replace(/\D/g,"");
+    const duplicado=jogadores.find(j=>j.tel.replace(/\D/g,"")===telLimpo);
+    if(duplicado){fireToast(`Telefone já cadastrado para ${duplicado.nome}!`,false);return;}
+    db.addJogador({...form,indisponivel_ate:form.indisponivelAte||null})
+      .then(data=>{
+        const salvo=fromDB(data[0]);
+        setJogadores(p=>[...p,salvo]);
+        fireToast(`${form.nome} cadastrado! [OK]`);
+      })
+      .catch(()=>{
+        setJogadores(p=>[...p,{...form,id:`temp-${Date.now()}`}]);
+        fireToast(`${form.nome} cadastrado localmente [OK]`);
+      });
+    setShowForm(false);setForm(F0);
+  }
+
+  const [editando,setEditando]=useState(null);
+
+  function abrirEdicao(j){
+    setForm({nome:j.nome,g:j.g,cat:j.cat,tel:j.tel,dias:j.dias,hrs:j.hrs,aceitaMisto:j.aceitaMisto,indisponivelAte:j.indisponivelAte||""});
+    setEditando(j.id);setShowForm(true);
+  }
+
+  function salvarEdicao(){
+    if(!form.nome.trim()||!form.tel.trim()){fireToast("Preencha nome e telefone",false);return;}
+    db.updateJogador(editando,{
+      nome:form.nome,telefone:form.tel,genero:form.g,
+      categoria:form.cat,
+      dias_pref:form.dias,horas_pref:form.hrs,aceita_misto:form.aceitaMisto,
+      indisponivel_ate:form.indisponivelAte||null,
+    }).then(()=>{
+      setJogadores(p=>p.map(j=>j.id===editando?{...j,...form,indisponivelAte:form.indisponivelAte||null}:j));
+      fireToast(`${form.nome} atualizado! [OK]`);
+    }).catch(()=>{
+      setJogadores(p=>p.map(j=>j.id===editando?{...j,...form,indisponivelAte:form.indisponivelAte||null}:j));
+      fireToast(`${form.nome} atualizado localmente [OK]`);
+    });
+    setShowForm(false);setEditando(null);setForm(F0);
+  }
+
+  function excluirJogador(j){
+    if(!window.confirm(`Excluir ${j.nome}?`)) return;
+    db.deleteJogador(j.id)
+      .then(()=>{setJogadores(p=>p.filter(x=>x.id!==j.id));fireToast(`${j.nome} removido`);})
+      .catch(()=>{setJogadores(p=>p.filter(x=>x.id!==j.id));fireToast(`${j.nome} removido`);});
+  }
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <div>
+        <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Jogadores</h2>
+        <p style={{fontSize:12,color:C.textSub}}>{jogadores.length} cadastrado(s)</p>
+      </div>
+      <Btn onClick={()=>{setEditando(null);setForm(F0);setShowForm(true);}}>+ Novo</Btn>
+    </div>
+    <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+      {["M","F"].map(g=><Chip key={g} active={gf===g} onClick={()=>setGf(g)} color={C.blue}>
+        {g==="M"?"M Masculino":"F Feminino"} ({jogadores.filter(j=>j.g===g).length})
+      </Chip>)}
+    </div>
+    <div style={{position:"relative",marginBottom:12}}>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}></span>
+      <input value={buscaJog} onChange={e=>setBuscaJog(e.target.value)}
+        placeholder="Buscar jogador por nome ou telefone..."
+        style={{width:"100%",padding:"9px 12px 9px 36px",borderRadius:10,
+          border:`1.5px solid ${buscaJog?C.blue:C.border}`,fontSize:13,
+          fontFamily:"inherit",color:C.text,outline:"none",background:"#fff",boxSizing:"border-box"}}/>
+      {buscaJog&&<button onClick={()=>setBuscaJog("")} style={{position:"absolute",right:10,
+        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>x</button>}
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {jogadores.filter(j=>gf?j.g===gf:true)
+        .filter(j=>!buscaJog||j.nome.toLowerCase().includes(buscaJog.toLowerCase())||j.tel.includes(buscaJog))
+        .map(j=><div key={j.id} style={{display:"flex",alignItems:"center",
+          gap:10,padding:"10px 12px",borderRadius:10,background:"#fff",border:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+          <Avatar nome={j.nome} size={32} g={j.g}/>
+          <div style={{flex:1,minWidth:80}}>
+            <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
+              <span style={{fontWeight:600,fontSize:13,color:C.text}}>{j.nome}</span>
+              {j.aceitaMisto&&<span style={{fontSize:9,color:"#92400E",fontWeight:600,background:"#FEF3C7",
+                border:"1px solid #FCD34D",borderRadius:99,padding:"1px 6px"}}>M+F misto</span>}
+              {j.indisponivelAte&&j.indisponivelAte>=new Date().toISOString().split("T")[0]&&
+                <span style={{fontSize:9,color:C.red,fontWeight:600,background:C.redBg,
+                  border:`1px solid ${C.redBor}`,borderRadius:99,padding:"1px 6px"}}>
+                   até {new Date(j.indisponivelAte+"T12:00:00").toLocaleDateString("pt-BR")}
+                </span>}
+            </div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              <CatPill cat={j.cat}/>
+              {j.dias.map(d=><span key={d} style={{fontSize:9,background:C.bg,border:`1px solid ${C.border}`,
+                borderRadius:99,padding:"2px 6px",color:C.textSub}}>{d}</span>)}
+            </div>
+          </div>
+          <div style={{fontSize:11,color:C.textSub,textAlign:"right",marginRight:4}}>
+            <div>{j.tel}</div><div style={{marginTop:2,color:C.textMut}}>Nível {NIVEL[j.cat]}</div>
+          </div>
+          <div style={{display:"flex",gap:5,flexShrink:0}}>
+            <button onClick={()=>abrirEdicao(j)} style={{background:C.blueBg,border:`1px solid #93C5FD`,
+              borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,color:C.blue,fontFamily:"inherit",fontWeight:600}}> Editar</button>
+            <button onClick={()=>excluirJogador(j)} style={{background:C.redBg,border:`1px solid ${C.redBor}`,
+              borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,color:C.red,fontFamily:"inherit",fontWeight:600}}></button>
+          </div>
+        </div>)}
+    </div>
+    {showForm&&<div onClick={()=>setShowForm(false)} style={{position:"fixed",inset:0,
+      background:"rgba(0,0,0,.35)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:22,
+        width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.15)"}}>
+        <h3 style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:16}}>{editando?"Editar Jogador":"Novo Jogador"}</h3>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>Nome</div>
+            <input style={inp} value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} placeholder="Nome completo"/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>Gênero</div>
+              <select style={inp} value={form.g} onChange={e=>setForm(f=>({...f,g:e.target.value,cat:"4ª"}))}>
+                <option value="M">Masculino</option><option value="F">Feminino</option></select></div>
+            <div>
+              <div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>Categoria</div>
+              <select style={inp} value={form.cat} onChange={e=>setForm(f=>({...f,cat:e.target.value}))}>
+                {(form.g==="M"?CATS_M:CATS_F).map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>Telefone</div>
+            <input style={inp} value={form.tel} onChange={e=>setForm(f=>({...f,tel:e.target.value}))} placeholder="11999990000"/></div>
+          <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:7}}>Dias preferidos</div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{DIAS.map(d=><Chip key={d} active={form.dias.includes(d)} onClick={()=>toggleArr("dias",d)} color={C.green}>{d}</Chip>)}</div></div>
+          <div><div style={{fontSize:10,color:C.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:7}}>Horários preferidos</div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{HORAS.map(h=><Chip key={h} active={form.hrs.includes(h)} onClick={()=>toggleArr("hrs",h)} color={C.green}>{h}</Chip>)}</div></div>
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"10px 12px",
+            borderRadius:10,border:`1.5px solid ${form.aceitaMisto?C.yellowBor:C.border}`,
+            background:form.aceitaMisto?C.yellowBg:"#fff",transition:"all .2s"}}>
+            <input type="checkbox" checked={form.aceitaMisto} onChange={e=>setForm(f=>({...f,aceitaMisto:e.target.checked}))}
+              style={{accentColor:C.yellow,width:16,height:16}}/>
+            <div><div style={{fontSize:13,fontWeight:600,color:form.aceitaMisto?C.yellow:C.textSub}}>M+F Aceita jogos mistos</div>
+              <div style={{fontSize:11,color:C.textMut}}>Será convidado para partidas mistas</div></div>
+          </label>
+          <div style={{background:form.indisponivelAte?C.redBg:"#fff",
+            border:`1.5px solid ${form.indisponivelAte?C.redBor:C.border}`,borderRadius:10,padding:"12px"}}>
+            <div style={{fontSize:13,fontWeight:600,color:form.indisponivelAte?C.red:C.textSub,marginBottom:6}}> Indisponível até</div>
+            <div style={{fontSize:11,color:C.textMut,marginBottom:8}}>O jogador não receberá convites até esta data</div>
+            <input type="date" style={{...inp,width:"100%"}} value={form.indisponivelAte||""}
+              onChange={e=>setForm(f=>({...f,indisponivelAte:e.target.value}))}/>
+            {form.indisponivelAte&&<button onClick={()=>setForm(f=>({...f,indisponivelAte:""}))}
+              style={{marginTop:6,background:"#fff",border:`1px solid ${C.redBor}`,color:C.red,
+                borderRadius:8,padding:"4px 12px",cursor:"pointer",fontSize:11,fontFamily:"inherit",fontWeight:600}}>
+              x Remover indisponibilidade
+            </button>}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn onClick={editando?salvarEdicao:salvar} style={{flex:1}}>{editando?"Salvar alterações":"Salvar"}</Btn>
+            <Btn variant="ghost" onClick={()=>{setShowForm(false);setEditando(null);setForm(F0);}}>Cancelar</Btn>
+          </div>
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
+
+// ─── FREQUÊNCIA VIEW ──────────────────────────────────────────────────────────
+function FrequenciaView({fireToast}){
+  const [periodo,setPeriodo]=useState("sempre");
+  const [dados,setDados]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [busca,setBusca]=useState("");
+
+  useEffect(()=>{
+    setLoading(true);
+    const d30=new Date(Date.now()-30*86400000).toISOString().split("T")[0];
+    const d7=new Date(Date.now()-7*86400000).toISOString().split("T")[0];
+    async function carregar(){
+      try{
+        const jogadores=await supaFetch("jogadores?select=id,nome,categoria,genero&ativo=eq.true&order=nome.asc");
+        if(!Array.isArray(jogadores)) return;
+        const dataFiltro=periodo==="30dias"?d30:periodo==="7dias"?d7:null;
+        const partQuery=dataFiltro
+          ?`participacoes?select=jogador_id,resposta,onda,jogos(data)&jogos.data=gte.${dataFiltro}`
+          :`participacoes?select=jogador_id,resposta,onda,jogos(data)`;
+        const parts=await supaFetch(partQuery);
+        const resultado=jogadores.map(j=>{
+          const minhas=(Array.isArray(parts)?parts:[]).filter(p=>p.jogador_id===j.id&&(!dataFiltro||p.jogos?.data>=dataFiltro));
+          const conf=minhas.filter(p=>p.resposta==="confirmado");
+          const recus=minhas.filter(p=>p.resposta==="recusou");
+          const expir=minhas.filter(p=>p.resposta==="expirado");
+          const total=conf.length+recus.length+expir.length;
+          const taxa=total>0?Math.round(conf.length*100/total):null;
+          const ondaMedia=conf.length>0?Math.round(conf.reduce((s,p)=>s+(p.onda||1),0)/conf.length*10)/10:null;
+          const datas=conf.map(p=>p.jogos?.data).filter(Boolean).sort();
+          const ultimoJogo=datas.length>0?datas[datas.length-1]:null;
+          return{...j,jogos_confirmados:conf.length,jogos_recusados:recus.length,
+            total_convites:total,taxa_confirmacao:taxa,onda_media_confirmacao:ondaMedia,ultimo_jogo:ultimoJogo};
+        }).sort((a,b)=>(b.jogos_confirmados||0)-(a.jogos_confirmados||0));
+        setDados(resultado);setLoading(false);
+      }catch(e){fireToast("Erro ao carregar frequência",false);setLoading(false);}
+    }
+    carregar();
+  },[periodo]);
+
+  const dadosFiltrados=dados.filter(d=>d.total_convites>0).filter(d=>!busca||d.nome.toLowerCase().includes(busca.toLowerCase()));
+
+  return <div style={{animation:"fadeIn .3s ease"}}>
+    <div style={{marginBottom:16}}>
+      <h2 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:4}}>Frequência de Jogadores</h2>
+      <p style={{fontSize:12,color:C.textSub}}>Histórico de participação</p>
+    </div>
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+      {[{v:"sempre",l:" Desde sempre"},{v:"30dias",l:" Últimos 30 dias"},{v:"7dias",l:" Últimos 7 dias"}].map(({v,l})=>(
+        <button key={v} onClick={()=>setPeriodo(v)} style={{
+          background:periodo===v?C.blue+"18":"#fff",border:`1.5px solid ${periodo===v?C.blue:C.border}`,
+          color:periodo===v?C.blue:C.textSub,borderRadius:99,padding:"6px 16px",cursor:"pointer",
+          fontFamily:"inherit",fontWeight:600,fontSize:12,transition:"all .15s"}}>{l}</button>
+      ))}
+    </div>
+    <div style={{position:"relative",marginBottom:16}}>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMut}}></span>
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar jogador..."
+        style={{width:"100%",padding:"9px 12px 9px 36px",borderRadius:10,
+          border:`1.5px solid ${busca?C.blue:C.border}`,fontSize:13,fontFamily:"inherit",
+          color:C.text,outline:"none",background:"#fff",boxSizing:"border-box"}}/>
+      {busca&&<button onClick={()=>setBusca("")} style={{position:"absolute",right:10,
+        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textMut,fontSize:16}}>x</button>}
+    </div>
+    {loading?<div style={{textAlign:"center",padding:"40px 0",color:C.textMut}}>
+      <div style={{fontSize:30,marginBottom:10}}></div><div>Carregando...</div>
+    </div>:dadosFiltrados.length===0
+    ?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
+      <div style={{fontSize:40,marginBottom:12}}></div>
+      <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>{busca?"Nenhum jogador encontrado":"Nenhum dado no período"}</div>
+      <div style={{fontSize:13}}>{busca?"Tente outro nome":"Os dados aparecem após fechar jogos"}</div>
+    </div>
+    :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {dadosFiltrados.map((j,i)=>(
+        <div key={j.id} style={{background:"#fff",border:`1px solid ${C.border}`,
+          borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div style={{fontWeight:700,fontSize:13,color:C.textMut,width:24,textAlign:"right",flexShrink:0}}>#{i+1}</div>
+          <div style={{flex:1,minWidth:100}}>
+            <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>{j.nome}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <CatPill cat={j.categoria}/>
+              <GenBadge g={j.genero}/>
+              {j.taxa_confirmacao!=null&&<span style={{fontSize:10,fontWeight:700,
+                background:j.taxa_confirmacao>=70?C.greenBg:j.taxa_confirmacao>=40?C.yellowBg:C.redBg,
+                color:j.taxa_confirmacao>=70?C.green:j.taxa_confirmacao>=40?C.yellow:C.red,
+                border:`1px solid ${j.taxa_confirmacao>=70?C.greenBor:j.taxa_confirmacao>=40?C.yellowBor:C.redBor}`,
+                borderRadius:99,padding:"2px 8px"}}>{j.taxa_confirmacao}% conf.</span>}
+              {j.onda_media_confirmacao&&<span style={{fontSize:10,color:C.textMut,fontWeight:600,
+                background:C.bg,border:`1px solid ${C.border}`,borderRadius:99,padding:"2px 8px"}}>
+                 onda {j.onda_media_confirmacao} média
+              </span>}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:700,color:C.green}}>{j.jogos_confirmados||0}</div>
+              <div style={{fontSize:10,color:C.textMut}}>Confirmados</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:700,color:C.red}}>{j.jogos_recusados||0}</div>
+              <div style={{fontSize:10,color:C.textMut}}>Recusados</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:700,color:C.text}}>{j.total_convites||0}</div>
+              <div style={{fontSize:10,color:C.textMut}}>Convites</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.textSub}}>
+                {j.ultimo_jogo?new Date(j.ultimo_jogo+"T12:00:00").toLocaleDateString("pt-BR"):"—"}
+              </div>
+              <div style={{fontSize:10,color:C.textMut}}>Último jogo</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>}
+  </div>;
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function App(){
+  const [tela,setTela]=useState("jogos");
+  const [jogadores,setJogadores]=useState([]);
+  const [loadingJogadores,setLoadingJogadores]=useState(true);
+  const [metricas,setMetricas]=useState({});
+
+  const [jogosAtivos,setJogosAtivosRaw]=useState(()=>{
+    try{ const s=sessionStorage.getItem("jogosAtivos"); return s?JSON.parse(s):[]; }catch{ return []; }
+  });
+  const [jogoAbertoId,setJogoAbertoIdState]=useState(()=>{
+    try{ return JSON.parse(sessionStorage.getItem("jogoAbertoId")||"null"); }catch{ return null; }
+  });
+
+  function setJogosAtivos(fn){
+    setJogosAtivosRaw(prev=>{
+      const next=typeof fn==="function"?fn(prev):fn;
+      try{ sessionStorage.setItem("jogosAtivos",JSON.stringify(next)); }catch{}
+      return next;
+    });
+  }
+  function setJogoAbertoId(id){
+    setJogoAbertoIdState(id);
+    try{ sessionStorage.setItem("jogoAbertoId",JSON.stringify(id)); }catch{}
+  }
+
+  useEffect(()=>{
+    async function carregarJogosAtivos(){
+      try{
+        const jogosDb=await supaFetch("jogos?select=*&status=eq.ativo&order=created_at.desc");
+        if(!Array.isArray(jogosDb)||!jogosDb.length) return;
+        const jogosComFila=await Promise.all(jogosDb.map(async jg=>{
+          const parts=await supaFetch(`participacoes?select=id,jogador_id,resposta,onda&jogo_id=eq.${jg.id}`);
+          const ids=[...new Set((parts||[]).map(p=>p.jogador_id))];
+          if(!ids.length) return null;
+          const jogadoresDb=await supaFetch(`jogadores?select=*&id=in.(${ids.join(",")})`);
+          const fila=(parts||[]).map(p=>{
+            const j=(jogadoresDb||[]).find(x=>x.id===p.jogador_id);
+            if(!j) return null;
+            return{...fromDB(j),status:p.resposta,ondaEnviado:p.onda,
+              respostaEm:p.resposta!=="pendente"?"via WhatsApp":null,
+              participacaoId:p.id, score:0};
+          }).filter(Boolean);
+          return{id:Date.now()+Math.random(),dbId:jg.id,
+            slot:{data:jg.data,hora:jg.hora,quadra:jg.quadra,genero:jg.genero,catsAlvo:[]},
+            fila,ondaAtual:jg.ondas_usadas||1,catDefinida:jg.categoria,
+            generoDef:null,timer:0,status:"ativo",criadoEm:jg.created_at};
+        }));
+        const validos=jogosComFila.filter(Boolean);
+        if(validos.length) setJogosAtivosRaw(validos);
+      }catch(e){ console.log("Erro ao carregar jogos:",e); }
+    }
+    carregarJogosAtivos();
+  },[]);
+
+  const [historico,setHistorico]=useState([]);
+  const [mostrarForm,setMostrarForm]=useState(false);
+  const [msgModal,setMsgModal]=useState(null);
+  const [alertaOp,setAlertaOp]=useState(null);
+  const [cancelarModal,setCancelarModal]=useState(null);
+  const [confirmarManualModal,setConfirmarManualModal]=useState(null);
+  const [toast,setToast]=useState(null);
+  // FIX: remetente comeca em branco
+  const [remetente,setRemetente]=useState("");
+  const timersRef=useRef({});
+  const remetenteRef=useRef(remetente);
+  const jogosAtivosRef=useRef(jogosAtivos);
+  useEffect(()=>{ remetenteRef.current=remetente; },[remetente]);
+  useEffect(()=>{ jogosAtivosRef.current=jogosAtivos; },[jogosAtivos]);
+
+  const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
+
+  useEffect(()=>{
+    window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();window._pwaPrompt=e;});
+  },[]);
+
+  useEffect(()=>{
+    if("Notification" in window && Notification.permission==="default"){
+      setTimeout(()=>{ Notification.requestPermission().then(p=>{ if(p==="granted") fireToast(" Notificações ativadas!"); }); },3000);
+    }
+  },[]);
+
+  // Polling 30s
+  useEffect(()=>{
+    const interval=setInterval(async()=>{
+      const jogosEmAndamento=jogosAtivos.filter(j=>j.status==="ativo");
+      if(!jogosEmAndamento.length) return;
+      for(const jg of jogosEmAndamento){
+        try{
+          const jogosDb=await supaFetch(
+            `jogos?select=id&data=eq.${jg.slot.data}&hora=eq.${jg.slot.hora}&quadra=eq.${encodeURIComponent(jg.slot.quadra)}&order=created_at.desc&limit=1`
+          );
+          if(!Array.isArray(jogosDb)||!jogosDb.length) continue;
+          const jogoDbId=jogosDb[0].id;
+          const parts=await supaFetch(`participacoes?select=jogador_id,resposta&jogo_id=eq.${jogoDbId}`);
+          if(!Array.isArray(parts)) continue;
+          setJogosAtivos(prev=>prev.map(j=>{
+            if(j.id!==jg.id) return j;
+            let novaFila=[...j.fila];
+            let mudou=false;
+            parts.forEach(p=>{
+              novaFila=novaFila.map(f=>{
+                if(f.id!==p.jogador_id) return f;
+                if(f.status===p.resposta||p.resposta==="pendente") return f;
+                mudou=true;
+                if(p.resposta==="confirmado"){ setTimeout(()=>fireToast(`[OK] ${f.nome.split(" ")[0]} confirmou!`),0); tocarSom("confirmado"); }
+                if(p.resposta==="recusou") setTimeout(()=>fireToast(`[X] ${f.nome.split(" ")[0]} recusou`),0);
+                return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
+              });
+            });
+            if(!mudou) return j;
+            const conf=novaFila.filter(x=>x.status==="confirmado");
+            if(conf.length===4&&j.status==="ativo"){
+              const{sc,d1,d2}=melhorDuplas(conf);
+              tocarSom("fechado");
+              setTimeout(()=>fireToast(`[P] Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`),0);
+              return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
+            }
+            return{...j,fila:novaFila,dbId:jogoDbId};
+          }));
+        }catch(e){ console.log("polling error:",e); }
+      }
+    },30000);
+    return()=>clearInterval(interval);
+  },[jogosAtivos]);
+
+  useEffect(()=>{
+    setLoadingJogadores(true);
+    Promise.all([db.getJogadores(),supaFetch("metricas_jogadores?select=*")])
+      .then(([jogs,mets])=>{
+        setJogadores((jogs||[]).map(fromDB));
+        if(Array.isArray(mets)){ const o={}; mets.forEach(m=>{o[m.id]=m;}); setMetricas(o); }
+        setLoadingJogadores(false);
+      }).catch(()=>setLoadingJogadores(false));
+  },[]);
+
+  // Timer por jogo
+  useEffect(()=>{
+    jogosAtivos.forEach(j=>{
+      if(j.status==="ativo"&&!timersRef.current[j.id]){
+        timersRef.current[j.id]=setInterval(()=>{
+          setJogosAtivos(prev=>prev.map(jg=>{
+            if(jg.id!==j.id||jg.status!=="ativo") return jg;
+            if(jg.timer-1<=0){
+              const conf=jg.fila.filter(x=>x.status==="confirmado");
+              if(conf.length===4) return jg;
+              const novaFila=jg.fila.map(f=>f.status==="pendente"?{...f,status:"expirado"}:f);
+              const aguard=novaFila.filter(f=>f.status==="aguardando");
+              if(!aguard.length) return{...jg,fila:novaFila,timer:TIMER_MAX,status:"sem_candidatos"};
+              const prox=jg.ondaAtual+1;
+              const tam=jg.tamanhoOnda||8;
+              const n=Math.min(tam,(4-conf.length)*2,aguard.length);
+              const paraConvidar=aguard.slice(0,n);
+              const filaAtualizada=novaFila.map(f=>
+                paraConvidar.find(p=>p.id===f.id)?{...f,status:"pendente",ondaEnviado:prox}:f
+              );
+              setTimeout(()=>{
+                enviarParaLista(paraConvidar,f=>buildMsgConvite(f,jg.slot,conf,remetenteRef.current,f.participacaoId))
+                  .then(({ok})=>fireToast(` Onda ${prox}: ${ok} convite(s)!`)).catch(()=>{});
+              },500);
+              return{...jg,fila:filaAtualizada,ondaAtual:prox,timer:TIMER_MAX};
+            }
+            return{...jg,timer:jg.timer-1};
+          }));
+        },1000);
+      }
+      if(j.status!=="ativo"&&timersRef.current[j.id]){
+        clearInterval(timersRef.current[j.id]);
+        delete timersRef.current[j.id];
+      }
+    });
+    Object.keys(timersRef.current).forEach(id=>{
+      if(!jogosAtivos.find(j=>j.id===Number(id))){
+        clearInterval(timersRef.current[id]);
+        delete timersRef.current[id];
+      }
+    });
+  },[jogosAtivos]);
+
+  // ─── RESPONDER ───────────────────────────────────────────────────────────────
+  function responder(jogoId, playerId, resp){
+    setJogosAtivos(prev=>prev.map(jg=>{
+      if(jg.id!==jogoId) return jg;
+      if(jg.status==="fechado"&&resp==="sim"){
+        const j=jg.fila.find(x=>x.id===playerId);
+        if(j){ setTimeout(()=>setAlertaOp({jogador:j,slot:jg.slot}),50); }
+        return{...jg,fila:jg.fila.map(x=>x.id===playerId?{...x,status:"interessado"}:x)};
+      }
+      if(jg.status!=="ativo") return jg;
+
+      let novaFila=jg.fila.map(j=>
+        j.id===playerId?{...j,status:resp==="sim"?"confirmado":"recusou",
+          respostaEm:new Date().toLocaleTimeString("pt-BR")}:j
+      );
+      const conf=novaFila.filter(j=>j.status==="confirmado");
+      const pend=novaFila.filter(j=>j.status==="pendente");
+      let catDef=jg.catDefinida;
+      let generoDef=jg.generoDef||null;
+
+      // FIX: quando primeiro aceita, define categoria e genero e exclui incompativeis
+      if(resp==="sim"&&conf.length===1&&!catDef){
+        catDef=conf[0].cat;
+        generoDef=jg.slot.genero==="Todos"?conf[0].g:generoDef;
+        novaFila=novaFila.map(j=>{
+          if(j.status==="confirmado") return j;
+          const catIncompat=j.cat!==catDef;
+          const genIncompat=generoDef&&j.g!==generoDef&&!j.aceitaMisto;
+          if((catIncompat||genIncompat)&&(j.status==="pendente"||j.status==="aguardando"))
+            return{...j,status:"excluido_cat"};
+          return j;
+        });
+      }
+
+      if(conf.length===4){
+        clearInterval(timersRef.current[jogoId]);
+        delete timersRef.current[jogoId];
+        const{sc,d1,d2}=melhorDuplas(conf);
+        const fechado={...jg,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,
+          scoreEquilibrio:sc,catDefinida:catDef,generoDef};
+        setTimeout(()=>{
+          setHistorico(h=>[fechado,...h]);
+          db.saveJogo(fechado).catch(()=>{});
+          fireToast(`[P] Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`);
+          const msgFechado=buildMsgFechado(d1,d2,jg.slot);
+          // FIX: envia so para confirmados sem duplicatas
+          const enviados=new Set();
+          conf.forEach(j=>{ if(!enviados.has(j.tel)){ enviados.add(j.tel); enviarWhatsApp(j.tel,msgFechado).catch(()=>{}); } });
+        },300);
+        return fechado;
+      }
+
+      // FIX: NAO manual — so registra, nao envia agradecimento automatico
+      if(resp==="nao"&&pend.length===0){
+        return processarFimOnda({...jg,fila:novaFila,catDefinida:catDef,generoDef});
+      }
+      return{...jg,fila:novaFila,catDefinida:catDef,generoDef};
+    }));
+  }
+
+  function processarFimOnda(prev){
+    const novaFila=prev.fila.map(j=>j.status==="pendente"?{...j,status:"expirado"}:j);
+    const conf=novaFila.filter(j=>j.status==="confirmado");
+    if(conf.length===4){ const{sc,d1,d2}=melhorDuplas(conf); return{...prev,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc}; }
+    const aguard=novaFila.filter(j=>j.status==="aguardando");
+    if(!aguard.length) return{...prev,fila:novaFila,status:"sem_candidatos"};
+    const prox=prev.ondaAtual+1;
+    const tam=prev.tamanhoOnda||8;
+    const n=Math.min(tam,(4-conf.length)*2,aguard.length);
+    const paraConvidar=aguard.slice(0,n);
+    const filaAtualizada=novaFila.map(j=>paraConvidar.find(p=>p.id===j.id)?{...j,status:"pendente",ondaEnviado:prox}:j);
+    setTimeout(()=>{
+      enviarParaLista(paraConvidar,j=>buildMsgConvite(j,prev.slot,conf,remetente,j.participacaoId))
+        .then(({ok,erros})=>{ if(erros>0) fireToast(` Onda ${prox}: ${ok} enviado(s), ${erros} erro(s)`); else fireToast(` Onda ${prox}: ${ok} convite(s)!`); }).catch(()=>{});
+    },500);
+    return{...prev,fila:filaAtualizada,ondaAtual:prox,timer:TIMER_MAX};
+  }
+
+  async function atualizarJogo(jogoId){
+    const jg=jogosAtivos.find(j=>j.id===jogoId);
+    if(!jg) return;
+    try{
+      const jogosDb=await supaFetch(
+        `jogos?select=id&data=eq.${jg.slot.data}&hora=eq.${jg.slot.hora}&quadra=eq.${encodeURIComponent(jg.slot.quadra)}&order=created_at.desc&limit=1`
+      );
+      if(!Array.isArray(jogosDb)||!jogosDb.length){ fireToast("Jogo não encontrado",false); return; }
+      const jogoDbId=jogosDb[0].id;
+      const parts=await supaFetch(`participacoes?select=jogador_id,resposta&jogo_id=eq.${jogoDbId}`);
+      if(!Array.isArray(parts)) return;
+      setJogosAtivos(prev=>prev.map(j=>{
+        if(j.id!==jogoId) return j;
+        let novaFila=[...j.fila];
+        let mudou=false;
+        parts.forEach(p=>{
+          novaFila=novaFila.map(f=>{
+            if(f.id!==p.jogador_id) return f;
+            if(f.status===p.resposta||p.resposta==="pendente") return f;
+            mudou=true;
+            return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
+          });
+        });
+        if(!mudou){ fireToast("Nenhuma atualização"); return j; }
+        const conf=novaFila.filter(x=>x.status==="confirmado");
+        fireToast(`[OK] Atualizado! ${conf.length}/4 confirmados`);
+        if(conf.length===4&&j.status==="ativo"){
+          const{sc,d1,d2}=melhorDuplas(conf);
+          return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc,dbId:jogoDbId};
+        }
+        return{...j,fila:novaFila,dbId:jogoDbId};
+      }));
+    }catch(e){ fireToast("Erro ao atualizar",false); }
+  }
+
+  async function confirmarManualJogo(jogoId,ids){
+    const jg=jogosAtivos.find(j=>j.id===jogoId);
+    if(!jg||ids.length!==4) return;
+    const jogadoresConf=await supaFetch(`jogadores?select=id,nome,telefone&id=in.(${ids.join(",")})`).catch(()=>[]);
+    const lista=Array.isArray(jogadoresConf)?jogadoresConf:[];
+    const msg=`[P] *JOGO CONFIRMADO!*\n\n ${diaSemana(jg.slot.data)}, ${fmtData(jg.slot.data)}\n ${jg.slot.hora}\n ${jg.slot.quadra}\n\n${lista.map(j=>`- ${j.nome}`).join("\n")}`;
+    for(const j of lista){ await enviarWhatsApp(j.telefone,msg).catch(()=>{}); }
+    const novaFila=jg.fila.map(f=>({...f,status:ids.includes(f.id)?"confirmado":f.status==="confirmado"?"recusou":f.status}));
+    const conf=novaFila.filter(f=>f.status==="confirmado");
+    const{sc,d1,d2}=melhorDuplas(conf);
+    setJogosAtivos(prev=>prev.map(j=>j.id===jogoId?{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc}:j));
+    setConfirmarManualModal(null);
+    fireToast("[P] Jogo confirmado e mensagens enviadas!");
+    tocarSom("fechado");
+  }
+
+  async function cancelarJogo(jogoId,avisarConfirmados){
+    const jg=jogosAtivos.find(j=>j.id===jogoId);
+    if(!jg) return;
+    if(avisarConfirmados){
+      const conf=jg.fila.filter(j=>j.status==="confirmado");
+      const msg=`Olá! Infelizmente o jogo de ${jg.slot.hora} na ${jg.slot.quadra} do dia ${fmtData(jg.slot.data)} foi cancelado. Pedimos desculpas! [P]${remetente?`\n\n_${remetente}_`:""}`;
+      try{
+        const ids=conf.map(j=>j.id).join(",");
+        if(ids){
+          const jogadoresDb=await supaFetch(`jogadores?select=id,telefone&id=in.(${ids})`);
+          if(Array.isArray(jogadoresDb)){ for(const j of jogadoresDb){ await enviarWhatsApp(j.telefone,msg).catch(()=>{}); } }
+        }
+      }catch(e){ for(const j of conf){ if(j.tel) await enviarWhatsApp(j.tel,msg).catch(()=>{}); } }
+    }
+    if(jg.dbId){
+      supaFetch(`jogos?id=eq.${jg.dbId}`,{method:"PATCH",prefer:"return=minimal",body:JSON.stringify({status:"cancelado"})}).catch(()=>{});
+    }
+    removerJogo(jogoId);
+    setCancelarModal(null);
+    fireToast("Jogo cancelado!");
+  }
+
+  // FIX: dispararCascata agora salva pendentes e inclui participacaoId na mensagem
+  async function dispararCascata({slot,jaConf,fila,tamanhoOnda=8}){
+    const id=Date.now();
+    const todasEntradas=[...jaConf,...fila];
+    const novoJogo={
+      id,slot,fila:todasEntradas,ondaAtual:1,tamanhoOnda,
+      catDefinida:slot.catsAlvo.length===1?slot.catsAlvo[0]:null,
+      generoDef:null,timer:TIMER_MAX,status:"ativo",
+      criadoEm:new Date().toLocaleTimeString("pt-BR"),dbId:null,
+    };
+    setJogosAtivos(prev=>[novoJogo,...prev]);
+    setJogoAbertoId(id);
+    setMostrarForm(false);
+
+    const pendentes=fila.filter(j=>j.ondaEnviado===1);
+
+    try{
+      const jogoDb=await db.criarJogo(slot,slot.catsAlvo.length===1?slot.catsAlvo[0]:null);
+      setJogosAtivos(prev=>prev.map(j=>j.id===id?{...j,dbId:jogoDb.id}:j));
+
+      // Salva pre-confirmados
+      if(jaConf.length>0){
+        supaFetch("participacoes",{method:"POST",prefer:"return=minimal",
+          body:JSON.stringify(jaConf.map(j=>({jogo_id:jogoDb.id,jogador_id:j.id,resposta:"confirmado",onda:0,respondido_em:new Date().toISOString()})))
+        }).catch(()=>{});
+      }
+
+      // Salva pendentes e recebe IDs para usar nos links
+      if(pendentes.length>0){
+        const participacoesSalvas=await db.savePendentes(jogoDb.id,pendentes);
+        // Mapeia jogador_id -> participacao_id
+        const mapaIds={};
+        if(Array.isArray(participacoesSalvas)){
+          participacoesSalvas.forEach(p=>{ mapaIds[p.jogador_id]=p.id; });
+        }
+        // Atualiza fila com participacaoId
+        setJogosAtivos(prev=>prev.map(j=>{
+          if(j.id!==id) return j;
+          return{...j,fila:j.fila.map(f=>mapaIds[f.id]?{...f,participacaoId:mapaIds[f.id]}:f)};
+        }));
+        // Envia convites com links SIM/NAO
+        const pendentesComId=pendentes.map(j=>({...j,participacaoId:mapaIds[j.id]}));
+        enviarParaLista(pendentesComId,j=>buildMsgConvite(j,slot,jaConf,remetente,j.participacaoId))
+          .then(({ok,erros})=>{
+            if(erros>0) fireToast(` Onda 1: ${ok} enviado(s), ${erros} erro(s)`);
+            else fireToast(` Onda 1: ${ok} convite(s) enviado(s)!`);
+          }).catch(()=>fireToast("Erro ao enviar convites",false));
+      } else {
+        fireToast(" Cascata disparada!");
+      }
+    }catch(e){
+      console.log("Erro ao criar jogo:",e);
+      fireToast("Erro ao criar jogo no banco",false);
+    }
+  }
+
+  function removerJogo(id){
+    clearInterval(timersRef.current[id]);
+    delete timersRef.current[id];
+    setJogosAtivos(prev=>{
+      const jg=prev.find(j=>j.id===id);
+      if(jg&&jg.status==="fechado") setHistorico(h=>[jg,...h]);
+      return prev.filter(j=>j.id!==id);
+    });
+    if(jogoAbertoId===id) setJogoAbertoId(null);
+  }
+
+  const jogosVisiveis=jogosAtivos;
+  const ativos=jogosAtivos.filter(j=>j.status==="ativo").length;
+  const fechados=jogosAtivos.filter(j=>j.status==="fechado").length;
+
+  return <div style={{minHeight:"100vh",background:C.bg,color:C.text,
+    fontFamily:"system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
+    <style>{`
+      *{box-sizing:border-box;margin:0;padding:0}
+      ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
+      input[type=date]{display:block;width:100%;max-width:100%;min-width:0;-webkit-appearance:none;appearance:none;box-sizing:border-box;}
+      input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;flex-shrink:0}
+      @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+      @media(max-width:540px){.nav-txt{display:none}}
+      select option{background:#fff;color:#1A202C}
+    `}</style>
+
+    <div style={{background:"#fff",borderBottom:`1px solid ${C.border}`,padding:"0 16px",
+      position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
+      <div style={{maxWidth:900,margin:"0 auto",display:"flex",alignItems:"center",
+        justifyContent:"space-between",height:52}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <img src="/logo.png" alt="Profit1" style={{height:34,width:"auto",objectFit:"contain"}}/>
+          <div style={{fontSize:9,color:C.textMut,letterSpacing:1.5,textTransform:"uppercase",
+            borderLeft:`1px solid ${C.border}`,paddingLeft:8}}>Convites</div>
+        </div>
+        <nav style={{display:"flex",gap:2,alignItems:"center"}}>
+          {window._pwaPrompt&&<button onClick={()=>{window._pwaPrompt.prompt();}} style={{
+            background:C.green,color:"#fff",border:"none",borderRadius:8,
+            padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginRight:4}}>
+             Instalar
+          </button>}
+          {[
+            {id:"jogos",icon:"[P]",txt:`Jogos${jogosAtivos.length?` (${jogosAtivos.length})`:""}`},
+            {id:"historico",icon:"",txt:`Histórico${historico.length?` (${historico.length})`:""}`},
+            {id:"frequencia",icon:"",txt:"Frequência"},
+            {id:"jogadores",icon:"",txt:"Jogadores"},
+          ].map(n=>{
+            const active=tela===n.id;
+            return <button key={n.id} onClick={()=>setTela(n.id)} style={{
+              background:active?C.greenBg:"transparent",border:"none",cursor:"pointer",
+              fontFamily:"inherit",fontSize:12,fontWeight:600,color:active?C.green:C.textSub,
+              padding:"6px 10px",borderRadius:8,transition:"all .15s",whiteSpace:"nowrap"}}>
+              {n.icon} <span className="nav-txt">{n.txt}</span>
+            </button>;
+          })}
+        </nav>
+      </div>
+    </div>
+
+    <div style={{maxWidth:900,margin:"0 auto",padding:"18px 16px"}}>
+      {tela==="jogos"&&<div style={{animation:"fadeIn .3s ease"}}>
+        <div style={{marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",
+            gap:10,marginBottom:10,flexWrap:"wrap"}}>
+            <div>
+              <h1 style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:2}}>Jogos Ativos</h1>
+              <div style={{fontSize:12,color:C.textSub,display:"flex",gap:12,flexWrap:"wrap"}}>
+                {ativos>0&&<span style={{color:C.yellow,fontWeight:600}}> {ativos} em andamento</span>}
+                {fechados>0&&<span style={{color:C.green,fontWeight:600}}>[OK] {fechados} fechado(s)</span>}
+                {jogosAtivos.length===0&&<span>Nenhum jogo ativo</span>}
+              </div>
+            </div>
+            <button onClick={()=>setMostrarForm(f=>!f)} style={{
+              background:C.green,color:"#fff",border:"none",borderRadius:10,
+              padding:"10px 18px",fontSize:13,fontWeight:700,cursor:"pointer",
+              fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>
+              + Novo Jogo
+            </button>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,
+            background:"#fff",border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px"}}>
+            <span style={{fontSize:11,color:C.textMut,fontWeight:600,whiteSpace:"nowrap"}}>Enviado por:</span>
+            <input value={remetente} onChange={e=>setRemetente(e.target.value)}
+              style={{background:"transparent",border:"none",fontSize:13,color:C.text,
+                fontFamily:"inherit",outline:"none",flex:1,minWidth:0}}
+              placeholder="Seu nome"/>
+          </div>
+        </div>
+
+        {mostrarForm&&<FormNovoJogo jogadores={jogadores} metricas={metricas} remetente={remetente}
+          onDispararCascata={dispararCascata} onCancelar={()=>setMostrarForm(false)}/>}
+
+        {jogosVisiveis.length===0&&!mostrarForm&&<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
+          <div style={{fontSize:40,marginBottom:12}}>[P]</div>
+          <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>Nenhum jogo em andamento</div>
+          <div style={{fontSize:13,marginBottom:16}}>Clique em "Novo Jogo" para começar</div>
+        </div>}
+
+        {jogosVisiveis.length>0&&<div style={{display:"grid",
+          gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10,marginBottom:16}}>
+          {jogosVisiveis.map(j=><JogoCard key={j.id} jogo={j}
+            isAtivo={jogoAbertoId===j.id}
+            onClick={()=>setJogoAbertoId(prev=>prev===j.id?null:j.id)}
+            onFechar={()=>removerJogo(j.id)}/>)}
+        </div>}
+
+        {jogoAbertoId&&(()=>{
+          const jg=jogosAtivos.find(j=>j.id===jogoAbertoId);
+          if(!jg) return null;
+          return <div style={{background:"#fff",border:`1.5px solid ${C.blue}`,borderRadius:16,
+            padding:18,animation:"fadeIn .25s ease"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <h2 style={{fontSize:16,fontWeight:700,color:C.text}}>
+                {jg.slot.hora} · {jg.slot.quadra}
+                <span style={{fontSize:12,color:C.textSub,fontWeight:400,marginLeft:8}}>
+                  {diaSemana(jg.slot.data)}, {fmtData(jg.slot.data)}
+                </span>
+              </h2>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {jg.status==="ativo"&&<TimerRing seg={jg.timer} total={TIMER_MAX}/>}
+                {jg.status==="fechado"&&<span style={{fontSize:12,color:C.green,fontWeight:700,
+                  background:C.greenBg,border:`1px solid ${C.greenBor}`,borderRadius:99,padding:"4px 12px"}}>
+                  [OK] Fechado
+                </span>}
+                <button onClick={()=>setJogoAbertoId(null)} style={{background:"none",border:"none",
+                  cursor:"pointer",color:C.textMut,fontSize:18,padding:"2px 4px"}}>x</button>
+              </div>
+            </div>
+            <CascataPanel jogo={jg} onResponder={responder} onMsg={setMsgModal} remetente={remetente}
+              onAtualizar={()=>atualizarJogo(jg.id)}
+              onCancelarJogo={()=>setCancelarModal(jg)}
+              onConfirmarManual={()=>setConfirmarManualModal(jg)}/>
+          </div>;
+        })()}
+      </div>}
+
+      {tela==="historico"&&<div style={{animation:"fadeIn .3s ease"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div>
+            <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Histórico</h2>
+            <p style={{fontSize:12,color:C.textSub}}>{historico.length} jogo(s)</p>
+          </div>
+          <Btn variant="ghost" onClick={()=>setTela("jogos")}><- Voltar</Btn>
+        </div>
+        {historico.length===0?<div style={{textAlign:"center",padding:"60px 0",color:C.textMut}}>
+          <div style={{fontSize:40,marginBottom:12}}></div>
+          <div style={{fontWeight:700,fontSize:16,color:C.text}}>Nenhum jogo registrado</div>
+        </div>:historico.map((h,i)=><div key={i} style={{background:"#fff",border:`1px solid ${C.border}`,
+          borderRadius:14,padding:14,marginBottom:10,borderLeft:`3px solid ${C.green}`}}>
+          <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
+            {[` ${diaSemana(h.slot.data)}, ${fmtData(h.slot.data)}`,` ${h.slot.hora}`,` ${h.slot.quadra}`].map((t,j)=>(
+              <span key={j} style={{fontSize:11,background:C.bg,border:`1px solid ${C.border}`,
+                borderRadius:99,padding:"3px 9px",color:C.textSub}}>{t}</span>
+            ))}
+            {h.catDefinida&&<span style={{fontSize:11,color:CAT_FG[h.catDefinida],fontWeight:700,
+              background:CAT_BG[h.catDefinida],border:`1px solid ${CAT_BOR[h.catDefinida]}`,
+              borderRadius:99,padding:"3px 9px"}}> {h.catDefinida}</span>}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:8,alignItems:"center",marginBottom:10}}>
+            <div style={{background:C.bg,borderRadius:8,padding:"8px 10px"}}>
+              {(h.dupla1||[]).map(j=><div key={j.id} style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:3}}>{j.nome}</div>)}
+            </div>
+            <div style={{fontWeight:700,fontSize:15,color:C.textMut,textAlign:"center",padding:"0 4px"}}>VS</div>
+            <div style={{background:C.bg,borderRadius:8,padding:"8px 10px"}}>
+              {(h.dupla2||[]).map(j=><div key={j.id} style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:3}}>{j.nome}</div>)}
+            </div>
+          </div>
+          <Btn variant="ghost" style={{fontSize:11,padding:"5px 12px"}}
+            onClick={()=>setMsgModal({titulo:"Reenviar confirmação",texto:buildMsgFechado(h.dupla1,h.dupla2,h.slot)})}>
+             Reenviar mensagem
+          </Btn>
+        </div>)}
+      </div>}
+
+      {tela==="frequencia"&&<FrequenciaView fireToast={fireToast}/>}
+      {tela==="jogadores"&&(loadingJogadores
+        ?<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
+          <div style={{fontSize:30,marginBottom:10}}></div><div>Carregando jogadores...</div>
+        </div>
+        :<JogadoresView jogadores={jogadores} setJogadores={setJogadores} fireToast={fireToast}/>
+      )}
+    </div>
+
+    {msgModal&&<MsgModal {...msgModal} onClose={()=>setMsgModal(null)} fireToast={fireToast}/>}
+    {alertaOp&&<AlertaOperador alerta={alertaOp} onClose={()=>setAlertaOp(null)}
+      onNovoSlot={()=>{setAlertaOp(null);setMostrarForm(true);setTela("jogos");}}/>}
+    {cancelarModal&&<ModalCancelar jogo={cancelarModal} onClose={()=>setCancelarModal(null)}
+      onCancelar={(avisar)=>cancelarJogo(cancelarModal.id,avisar)}/>}
+    {confirmarManualModal&&<ModalConfirmarManual jogo={confirmarManualModal} remetente={remetente}
+      onClose={()=>setConfirmarManualModal(null)}
+      onConfirmar={(ids)=>confirmarManualJogo(confirmarManualModal.id,ids)}/>}
+    {toast&&<div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",
+      background:toast.ok?"#fff":C.redBg,border:`1.5px solid ${toast.ok?C.greenBor:C.redBor}`,
+      borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:700,
+      color:toast.ok?C.green:C.red,zIndex:999,whiteSpace:"nowrap",
+      boxShadow:"0 4px 20px rgba(0,0,0,.1)",animation:"fadeIn .25s ease"}}>{toast.msg}</div>}
+  </div>;
+}
