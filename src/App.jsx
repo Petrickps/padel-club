@@ -1818,7 +1818,7 @@ export default function App(){
             <h2 style={{fontSize:20,fontWeight:700,color:C.text}}>Histórico</h2>
             <p style={{fontSize:12,color:C.textSub}}>{historico.length} jogo(s)</p>
           </div>
-          <Btn variant="ghost" onClick={()=>setTela("jogos")}><- Voltar</Btn>
+          <Btn variant="ghost" onClick={()=>setTela("jogos")}>Voltar</Btn>
         </div>
         {historico.length===0?<div style={{textAlign:"center",padding:"60px 0",color:C.textMut}}>
           <div style={{fontSize:40,marginBottom:12}}></div>
