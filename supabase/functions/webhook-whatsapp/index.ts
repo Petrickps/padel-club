@@ -121,39 +121,17 @@ async function transcreverAudio(msgId: string, telefone: string): Promise<string
 
 function reconhecer(texto: string): "sim" | "nao" | "desconhecido" {
   const t = texto.toLowerCase().trim()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[!.,?]+$/, "").trim();
 
-  // NAO verificado PRIMEIRO para evitar falsos positivos
-  const nao = [
-    "nao","negativo","impossivel","cancelar","ocupado","ocupada","infelizmente",
-    "nope","nao consigo","nao posso","nao vou","nao da","nao tenho",
-    "estarei","compromisso","viagem","viajando","trabalhando","trabalho",
-    "reuniao","medico","dentista","fora da cidade","sem condicoes","indisponivel",
-    "nao sera","dessa vez nao","proxima vez","outra vez","outro dia",
-    "amanha nao","hoje nao","semana que vem","nao rola","nao vou conseguir",
-    "nao consigo ir","nao da pra mim","nao tem como","to fora","to de viagem",
-    "nao vou poder","essa semana nao","nesse dia nao","nao posso ir",
-    "nao vai ser possivel","nao estou disponivel","nao vou estar","nao estarei",
-    "obrigado mas nao","obrigada mas nao","lamento","sinto muito","que pena",
-    "nao consigo dessa vez","dessa vez nao da","nao pode",
-  ];
+  // SIM — apenas palavras inequivocamente positivas
+  const sim = ["sim", "s", "yes", "topo", "bora", "confirmo", "confirmado", "quero", "aceito"];
 
-  // SIM apenas palavras inequivocas
-  const sim = [
-    "sim","topo","quero","bora","claro","confirmo",
-    "vou sim","yes","positivo","to dentro","com certeza","aceito","combinado",
-    "fechado","otimo","perfeito","maravilha","beleza","vai la",
-    "pode sim","vou conseguir","estarei la","estarei la",
-  ];
+  // NAO — apenas palavras inequivocamente negativas
+  const nao = ["nao", "n", "no", "nope", "negativo", "nao quero", "nao posso", "nao vou"];
 
-  // Verifica NAO primeiro
-  if (nao.some(p => t === p || t.startsWith(p) || t.includes(p))) return "nao";
-
-  // SIM apenas com match exato ou inicio claro
-  if (sim.some(p => t === p || t === `${p}!` || t === `${p}.` || t.startsWith(`${p} `) || t.startsWith(`${p},`))) return "sim";
-
-  // "s" sozinho vale como sim
-  if (t === "s") return "sim";
+  if (sim.includes(t)) return "sim";
+  if (nao.includes(t)) return "nao";
 
   return "desconhecido";
 }
@@ -240,25 +218,45 @@ Deno.serve(async (req) => {
   const participacao = participacoes[0];
   const jogo = participacao.jogos;
 
-  // FIX: Se jogo ja fechado, nao processa
+  // CONDICIONANTE 1: jogo fechado com 4 jogadores
   if (jogo.status === "fechado") {
-    console.log("Jogo ja fechado, ignorando resposta de:", jogador.nome);
+    console.log("Jogo fechado, expirando:", jogador.nome);
     await dbPatch("participacoes", `id=eq.${participacao.id}`, { resposta: "expirado" });
     return new Response("game closed", { status: 200 });
+  }
+
+  // CONDICIONANTE 2: jogo cancelado
+  if (jogo.status === "cancelado") {
+    console.log("Jogo cancelado, expirando:", jogador.nome);
+    await dbPatch("participacoes", `id=eq.${participacao.id}`, { resposta: "expirado" });
+    return new Response("game cancelled", { status: 200 });
+  }
+
+  // CONDICIONANTE 3: horario do jogo ja passou
+  if (jogo.data && jogo.hora) {
+    const agora = new Date();
+    const jogoDateTime = new Date(`${jogo.data}T${jogo.hora}:00`);
+    if (agora >= jogoDateTime) {
+      console.log("Horario passou, expirando:", jogador.nome);
+      await dbPatch("participacoes", `id=eq.${participacao.id}`, { resposta: "expirado" });
+      if (jogo.status === "ativo") {
+        await dbPatch("jogos", `id=eq.${jogo.id}`, { status: "expirado" });
+      }
+      return new Response("game expired", { status: 200 });
+    }
   }
 
   let resultado = reconhecer(textoFinal);
   console.log("RESULTADO LOCAL:", resultado, "para:", textoFinal);
 
-  if (resultado === "desconhecido") {
-    resultado = await interpretarComClaude(textoFinal);
-    console.log("RESULTADO CLAUDE:", resultado);
-  }
 
-  // Se ainda desconhecido, nao faz nada — deixa para o operador
+  // Se nao entendeu, pede resposta clara — sem usar Claude
   if (resultado === "desconhecido") {
-    console.log("NAO ENTENDIDO — operador deve agir:", textoFinal, "jogador:", jogador.nome);
-    return new Response("unclear - operator action required", { status: 200 });
+    console.log("NAO ENTENDIDO:", textoFinal, "jogador:", jogador.nome);
+    await enviarMsg(jogador.telefone,
+      `Desculpe, não entendi sua resposta 😊\n\nPoderia responder *SIM* ou *NÃO*?`
+    );
+    return new Response("unclear - asked for clarification", { status: 200 });
   }
 
   await dbPatch("participacoes", `id=eq.${participacao.id}`, {
