@@ -1447,8 +1447,29 @@ export default function App(){
               const filaAtualizada=novaFila.map(f=>
                 paraConvidar.find(p=>p.id===f.id)?{...f,status:"pendente",ondaEnviado:prox}:f
               );
-              setTimeout(()=>{
-                enviarParaLista(paraConvidar,f=>buildMsgConvite(f,jg.slot,conf,remetenteRef.current,f.participacaoId))
+              setTimeout(async()=>{
+                // Salva participacoes no banco para o webhook funcionar
+                if(jg.dbId){
+                  try{
+                    await supaFetch("participacoes",{
+                      method:"POST",
+                      body:JSON.stringify(paraConvidar.map(f=>({
+                        jogo_id:jg.dbId,
+                        jogador_id:f.id,
+                        resposta:"pendente",
+                        onda:prox,
+                      }))),
+                    });
+                    const agora4h = new Date().toISOString();
+                    paraConvidar.forEach(f=>{
+                      supaFetch(`jogadores?id=eq.${f.id}`,{
+                        method:"PATCH",prefer:"return=minimal",
+                        body:JSON.stringify({ultimo_convite_em:agora4h})
+                      }).catch(()=>{});
+                    });
+                  }catch(e){}
+                }
+                enviarParaLista(paraConvidar,f=>buildMsgConvite(f,jg.slot,conf,remetenteRef.current))
                   .then(({ok})=>fireToast(` Onda ${prox}: ${ok} convite(s)!`)).catch(()=>{});
               },500);
               return{...jg,fila:filaAtualizada,ondaAtual:prox,timer:TIMER_MAX};
@@ -1549,8 +1570,30 @@ export default function App(){
     const n=Math.min(tam,(4-conf.length)*2,aguard.length);
     const paraConvidar=aguard.slice(0,n);
     const filaAtualizada=novaFila.map(j=>paraConvidar.find(p=>p.id===j.id)?{...j,status:"pendente",ondaEnviado:prox}:j);
-    setTimeout(()=>{
-      enviarParaLista(paraConvidar,j=>buildMsgConvite(j,prev.slot,conf,remetente,j.participacaoId))
+    setTimeout(async()=>{
+      // Salva novas participacoes pendentes no banco para o webhook funcionar
+      if(prev.dbId){
+        try{
+          const novasParts = await supaFetch("participacoes",{
+            method:"POST",
+            body:JSON.stringify(paraConvidar.map(j=>({
+              jogo_id:prev.dbId,
+              jogador_id:j.id,
+              resposta:"pendente",
+              onda:prox,
+            }))),
+          });
+          // Atualiza ultimo_convite_em para regra 4h
+          const agora4h = new Date().toISOString();
+          paraConvidar.forEach(j=>{
+            supaFetch(`jogadores?id=eq.${j.id}`,{
+              method:"PATCH",prefer:"return=minimal",
+              body:JSON.stringify({ultimo_convite_em:agora4h})
+            }).catch(()=>{});
+          });
+        }catch(e){ console.log("Erro ao salvar onda",prox,e); }
+      }
+      enviarParaLista(paraConvidar,j=>buildMsgConvite(j,prev.slot,conf,remetente))
         .then(({ok,erros})=>{ if(erros>0) fireToast(` Onda ${prox}: ${ok} enviado(s), ${erros} erro(s)`); else fireToast(` Onda ${prox}: ${ok} convite(s)!`); }).catch(()=>{});
     },500);
     return{...prev,fila:filaAtualizada,ondaAtual:prox,timer:TIMER_MAX};
