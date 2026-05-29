@@ -237,7 +237,7 @@ function melhorDuplas(g4) {
 }
 
 // FIX: buildMsgConvite agora aceita participacaoId para incluir botoes SIM/NAO
-function buildMsgConvite(j, slot, confirmados, remetente, participacaoId) {
+function buildMsgConvite(j, slot, confirmados, remetente) {
   const ds = diaSemana(slot.data);
   const nome = j.nome.split(" ")[0];
   let linhaConf = "";
@@ -250,13 +250,7 @@ function buildMsgConvite(j, slot, confirmados, remetente, participacaoId) {
   }
   const rem = remetente ? `${remetente} aqui, tudo bem?! ` : "";
   let msg = `Oi, ${nome}! ${rem}[P]\n\nTenho um jogo para você:\n\n *${ds}, ${fmtData(slot.data)}*\n *${slot.hora}*\n *${slot.quadra}*${linhaConf}\n\nVocê topa?`;
-  // FIX: adiciona botoes SIM/NAO se tiver participacaoId
-  if (participacaoId) {
-    const base = `${SUPA_URL}/functions/v1/responder`;
-    msg += `\n\n[OK] SIM → ${base}?p=${participacaoId}&r=sim\n[X] NÃO → ${base}?p=${participacaoId}&r=nao`;
-  } else {
-    msg += `\n\nResponda *SIM* ou *NÃO* [P]`;
-  }
+  msg += `\n\nResponda *SIM* ou *NÃO* [P]`;
   return msg;
 }
 
