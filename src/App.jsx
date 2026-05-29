@@ -1679,6 +1679,15 @@ export default function App(){
           fireToast("Horario do jogo ja passou, convites nao enviados",false);
           return;
         }
+        // Atualiza ultimo_convite_em para respeitar regra de 4 horas
+        const agora4h = new Date().toISOString();
+        pendentes.forEach(j=>{
+          supaFetch(`jogadores?id=eq.${j.id}`,{
+            method:"PATCH",prefer:"return=minimal",
+            body:JSON.stringify({ultimo_convite_em:agora4h})
+          }).catch(()=>{});
+        });
+
         // Envia convites
         const pendentesComId=pendentes.map(j=>({...j,participacaoId:mapaIds[j.id]}));
         enviarParaLista(pendentesComId,j=>buildMsgConvite(j,slot,jaConf,remetente))
