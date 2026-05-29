@@ -1622,7 +1622,10 @@ export default function App(){
       }catch(e){ for(const j of conf){ if(j.tel) await enviarWhatsApp(j.tel,msg).catch(()=>{}); } }
     }
     if(jg.dbId){
+      // Marca jogo como cancelado
       supaFetch(`jogos?id=eq.${jg.dbId}`,{method:"PATCH",prefer:"return=minimal",body:JSON.stringify({status:"cancelado"})}).catch(()=>{});
+      // Expira todas as participacoes pendentes para o webhook nao processar respostas tardias
+      supaFetch(`participacoes?jogo_id=eq.${jg.dbId}&resposta=eq.pendente`,{method:"PATCH",prefer:"return=minimal",body:JSON.stringify({resposta:"expirado"})}).catch(()=>{});
     }
     removerJogo(jogoId);
     setCancelarModal(null);
