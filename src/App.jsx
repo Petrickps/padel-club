@@ -1429,6 +1429,14 @@ export default function App(){
             if(jg.timer-1<=0){
               const conf=jg.fila.filter(x=>x.status==="confirmado");
               if(conf.length===4) return jg;
+              // Verifica se horario do jogo ja passou
+              if(jg.slot.data && jg.slot.hora) {
+                const agora = new Date();
+                const jogoDateTime = new Date(`${jg.slot.data}T${jg.slot.hora}:00`);
+                if(agora >= jogoDateTime) {
+                  return{...jg,fila:jg.fila.map(f=>f.status==="pendente"?{...f,status:"expirado"}:f),status:"expirado"};
+                }
+              }
               const novaFila=jg.fila.map(f=>f.status==="pendente"?{...f,status:"expirado"}:f);
               const aguard=novaFila.filter(f=>f.status==="aguardando");
               if(!aguard.length) return{...jg,fila:novaFila,timer:TIMER_MAX,status:"sem_candidatos"};
@@ -1523,6 +1531,14 @@ export default function App(){
   }
 
   function processarFimOnda(prev){
+    // Verifica se horario do jogo ja passou
+    if(prev.slot.data && prev.slot.hora) {
+      const agora = new Date();
+      const jogoDateTime = new Date(`${prev.slot.data}T${prev.slot.hora}:00`);
+      if(agora >= jogoDateTime) {
+        return{...prev,fila:prev.fila.map(j=>j.status==="pendente"?{...j,status:"expirado"}:j),status:"expirado"};
+      }
+    }
     const novaFila=prev.fila.map(j=>j.status==="pendente"?{...j,status:"expirado"}:j);
     const conf=novaFila.filter(j=>j.status==="confirmado");
     if(conf.length===4){ const{sc,d1,d2}=melhorDuplas(conf); return{...prev,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc}; }
@@ -1653,9 +1669,16 @@ export default function App(){
           if(j.id!==id) return j;
           return{...j,fila:j.fila.map(f=>mapaIds[f.id]?{...f,participacaoId:mapaIds[f.id]}:f)};
         }));
-        // Envia convites com links SIM/NAO
+        // Verifica se horario do jogo ja passou antes de enviar
+        const agoraDisp = new Date();
+        const jogoDateTimeDisp = slot.data && slot.hora ? new Date(`${slot.data}T${slot.hora}:00`) : null;
+        if(jogoDateTimeDisp && agoraDisp >= jogoDateTimeDisp) {
+          fireToast("Horario do jogo ja passou, convites nao enviados",false);
+          return;
+        }
+        // Envia convites
         const pendentesComId=pendentes.map(j=>({...j,participacaoId:mapaIds[j.id]}));
-        enviarParaLista(pendentesComId,j=>buildMsgConvite(j,slot,jaConf,remetente,j.participacaoId))
+        enviarParaLista(pendentesComId,j=>buildMsgConvite(j,slot,jaConf,remetente))
           .then(({ok,erros})=>{
             if(erros>0) fireToast(` Onda 1: ${ok} enviado(s), ${erros} erro(s)`);
             else fireToast(` Onda 1: ${ok} convite(s) enviado(s)!`);
