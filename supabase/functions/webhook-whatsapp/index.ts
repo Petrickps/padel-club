@@ -122,16 +122,31 @@ async function transcreverAudio(msgId: string, telefone: string): Promise<string
 function reconhecer(texto: string): "sim" | "nao" | "desconhecido" {
   const t = texto.toLowerCase().trim()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[!.,?]+$/, "").trim();
+    .replace(/[!.,?!\s]+$/, "").trim();
 
-  // SIM — apenas palavras inequivocamente positivas
-  const sim = ["sim", "s", "yes", "topo", "bora", "confirmo", "confirmado", "quero", "aceito"];
+  // SIM — palavras positivas
+  const sim = [
+    "sim", "s", "yes", "topo", "bora", "confirmo", "confirmado",
+    "quero", "aceito", "pode", "ok", "okay", "claro", "vai",
+    "vou", "com certeza", "beleza", "combinado", "positivo",
+    "to dentro", "pode ser", "vou sim", "vai la",
+  ];
 
-  // NAO — apenas palavras inequivocamente negativas
-  const nao = ["nao", "n", "no", "nope", "negativo", "nao quero", "nao posso", "nao vou"];
+  // NAO — palavras negativas
+  const nao = [
+    "nao", "n", "no", "nope", "negativo", "nao quero", "nao posso",
+    "nao vou", "nao consigo", "nao da", "nao tenho", "nao rola",
+    "nao vou conseguir", "nao posso ir", "nao estou disponivel",
+    "infelizmente", "infelizmente nao", "dessa vez nao",
+    "nao dessa", "nao pode", "nao da pra mim",
+  ];
 
   if (sim.includes(t)) return "sim";
   if (nao.includes(t)) return "nao";
+
+  // Verifica inicio da mensagem para frases comuns
+  if (t.startsWith("nao ") || t.startsWith("nao,")) return "nao";
+  if (t === "sim" || t.startsWith("sim ") || t.startsWith("sim,")) return "sim";
 
   return "desconhecido";
 }
