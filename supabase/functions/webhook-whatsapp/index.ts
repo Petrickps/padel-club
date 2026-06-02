@@ -296,27 +296,45 @@ Deno.serve(async (req) => {
     );
   }
 
-  // FIX: Verifica confirmados com protecao contra duplicata
+  // LOCK ATOMICO: evita multiplas confirmacoes simultaneas
+  // Tenta fechar o jogo somente se ainda estiver "ativo"
   const confirmados = await dbGet("participacoes",
     `select=id,jogadores(nome,telefone)&jogo_id=eq.${jogo.id}&resposta=eq.confirmado`
   );
-  const jogoAtual = await dbGet("jogos", `select=status&id=eq.${jogo.id}`);
-  const jogoStatus = Array.isArray(jogoAtual) ? jogoAtual[0]?.status : "ativo";
 
-  console.log("CONFIRMADOS:", Array.isArray(confirmados) ? confirmados.length : 0, "STATUS:", jogoStatus);
+  console.log("CONFIRMADOS:", Array.isArray(confirmados) ? confirmados.length : 0);
 
-  // FIX: Fecha apenas com EXATAMENTE 4 e apenas se ainda nao fechado
-  if (Array.isArray(confirmados) && confirmados.length === 4 && jogoStatus !== "fechado") {
-    // Fecha ANTES de enviar para evitar duplicatas
-    await dbPatch("jogos", `id=eq.${jogo.id}`, { status: "fechado" });
-    console.log("JOGO FECHADO!");
+  if (Array.isArray(confirmados) && confirmados.length >= 4) {
+    // UPDATE condicional atomico: so fecha se status ainda for "ativo"
+    const lockRes = await fetch(`${SUPABASE_URL}/rest/v1/jogos?id=eq.${jogo.id}&status=eq.ativo`, {
+      method: "PATCH",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+      },
+      body: JSON.stringify({ status: "fechado" }),
+    });
+    const lockData = await lockRes.json();
 
+    // Se nao retornou nenhuma linha, jogo ja foi fechado por outra chamada
+    if (!Array.isArray(lockData) || lockData.length === 0) {
+      console.log("Jogo ja fechado por outra chamada, ignorando.");
+      return new Response(JSON.stringify({ ok: true, resultado }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("JOGO FECHADO com lock atomico!");
+
+    const confirmados4 = confirmados.slice(0, 4);
     const dataFmt = jogo.data ? jogo.data.split("-").reverse().join("/") : "";
-    const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${dataFmt}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados.slice(0, 4).map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
+    const msg = `🎾 *JOGO CONFIRMADO!*\n\n📅 ${dataFmt}\n🕐 ${jogo.hora}\n🏟️ ${jogo.quadra}\n\n${confirmados4.map((p: any) => `• ${p.jogadores.nome}`).join("\n")}`;
 
-    // Envia sem duplicatas
+    // Envia para cada confirmado uma unica vez
     const enviados = new Set<string>();
-    for (const c of confirmados.slice(0, 4)) {
+    for (const c of confirmados4) {
       const tel = c.jogadores.telefone;
       if (!enviados.has(tel)) {
         await enviarMsg(tel, msg);
