@@ -600,7 +600,8 @@ function ModalCancelar({jogo,onCancelar,onClose}){
 }
 
 // ─── CASCATA PANEL ────────────────────────────────────────────────────────────
-function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJogo,onConfirmarManual}){
+function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJogo,onConfirmarManual,jogoLocalId}){
+  const jogoId = jogoLocalId || jogo.id;
   const conf=jogo.fila.filter(j=>j.status==="confirmado");
   const pend=jogo.fila.filter(j=>j.status==="pendente");
   const recus=jogo.fila.filter(j=>j.status==="recusou"||j.status==="expirado");
@@ -676,24 +677,24 @@ function CascataPanel({jogo,onResponder,onMsg,remetente,onAtualizar,onCancelarJo
     {conf.length>0&&<SLabel label={`[OK] Confirmados (${conf.length}/4)`} color={C.green}/>}
     {/* FIX: confirmados so tem botao NAO, sem agradecimento automatico */}
     {conf.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
-      onNao={()=>onResponder(jogo.id,j.id,"nao")}/>)}
+      onNao={()=>onResponder(jogoId,j.id,"nao")}/>)}
 
     {pend.length>0&&<SLabel label={` Aguardando — Onda ${jogo.ondaAtual}`} color={C.yellow}/>}
     {pend.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
-      onSim={()=>onResponder(jogo.id,j.id,"sim")}
-      onNao={()=>onResponder(jogo.id,j.id,"nao")}/>)}
+      onSim={()=>onResponder(jogoId,j.id,"sim")}
+      onNao={()=>onResponder(jogoId,j.id,"nao")}/>)}
 
     {recus.length>0&&<SLabel label={`[X] Recusaram / Sem resposta (${recus.length})`} color={C.textMut}/>}
     {recus.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
-      onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}
+      onSim={()=>onResponder(jogoId,j.id,"sim")}/>)}
 
     {fila.length>0&&<SLabel label={` Na fila (${fila.length})`} color={C.textMut}/>}
     {fila.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
-      onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}
+      onSim={()=>onResponder(jogoId,j.id,"sim")}/>)}
 
     {excl.length>0&&<><SLabel label=" Excluídos" color={C.textMut}/>
       {excl.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}
-        onSim={()=>onResponder(jogo.id,j.id,"sim")}/>)}</>}
+        onSim={()=>onResponder(jogoId,j.id,"sim")}/>)}</>}
 
     {inter.length>0&&<><SLabel label=" Interessados após fechamento" color="#7C3AED"/>
       {inter.map(j=><CandRow key={j.id} j={j} onMsg={onMsg} slot={jogo.slot} confirmados={conf} remetente={remetente}/>)}</>}
@@ -1539,7 +1540,8 @@ export default function App(){
   // ─── RESPONDER ───────────────────────────────────────────────────────────────
   function responder(jogoId, playerId, resp){
     setJogosAtivos(prev=>prev.map(jg=>{
-      if(jg.id!==jogoId) return jg;
+      // Busca por id local OU por dbId (para suportar celular que carregou do banco)
+      if(jg.id!==jogoId && jg.dbId!==jogoId) return jg;
       if(jg.status==="fechado"&&resp==="sim"){
         const j=jg.fila.find(x=>x.id===playerId);
         if(j){ setTimeout(()=>setAlertaOp({jogador:j,slot:jg.slot}),50); }
@@ -1924,7 +1926,8 @@ export default function App(){
             <CascataPanel jogo={jg} onResponder={responder} onMsg={setMsgModal} remetente={remetente}
               onAtualizar={()=>atualizarJogo(jg.id)}
               onCancelarJogo={()=>setCancelarModal(jg)}
-              onConfirmarManual={()=>setConfirmarManualModal(jg)}/>
+              onConfirmarManual={()=>setConfirmarManualModal(jg)}
+              jogoLocalId={jg.id}/>
           </div>;
         })()}
       </div>}
