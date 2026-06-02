@@ -1365,49 +1365,94 @@ export default function App(){
     }
   },[]);
 
-  // Polling 30s
+  // Supabase Realtime — sincronizacao em tempo real entre dispositivos
   useEffect(()=>{
-    const interval=setInterval(async()=>{
-      const jogosEmAndamento=jogosAtivos.filter(j=>j.status==="ativo");
-      if(!jogosEmAndamento.length) return;
-      for(const jg of jogosEmAndamento){
-        try{
-          const jogosDb=await supaFetch(
-            `jogos?select=id&data=eq.${jg.slot.data}&hora=eq.${jg.slot.hora}&quadra=eq.${encodeURIComponent(jg.slot.quadra)}&order=created_at.desc&limit=1`
-          );
-          if(!Array.isArray(jogosDb)||!jogosDb.length) continue;
-          const jogoDbId=jogosDb[0].id;
-          const parts=await supaFetch(`participacoes?select=jogador_id,resposta&jogo_id=eq.${jogoDbId}`);
-          if(!Array.isArray(parts)) continue;
-          setJogosAtivos(prev=>prev.map(j=>{
-            if(j.id!==jg.id) return j;
-            let novaFila=[...j.fila];
-            let mudou=false;
-            parts.forEach(p=>{
-              novaFila=novaFila.map(f=>{
-                if(f.id!==p.jogador_id) return f;
-                if(f.status===p.resposta||p.resposta==="pendente") return f;
-                mudou=true;
-                if(p.resposta==="confirmado"){ setTimeout(()=>fireToast(`[OK] ${f.nome.split(" ")[0]} confirmou!`),0); tocarSom("confirmado"); }
-                if(p.resposta==="recusou") setTimeout(()=>fireToast(`[X] ${f.nome.split(" ")[0]} recusou`),0);
-                return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
+    const client = getSupabaseClient();
+    if(!client){
+      console.log("Supabase Realtime nao disponivel, usando polling de fallback");
+      // Fallback: polling simples a cada 15s
+      const interval = setInterval(async()=>{
+        const ativos = jogosAtivosRef.current.filter(j=>j.status==="ativo"&&j.dbId);
+        for(const jg of ativos){
+          try{
+            const parts = await supaFetch(`participacoes?select=jogador_id,resposta&jogo_id=eq.${jg.dbId}`);
+            if(!Array.isArray(parts)) continue;
+            setJogosAtivos(prev=>prev.map(j=>{
+              if(j.dbId!==jg.dbId) return j;
+              let novaFila=[...j.fila], mudou=false;
+              parts.forEach(p=>{
+                novaFila=novaFila.map(f=>{
+                  if(f.id!==p.jogador_id||f.status===p.resposta||p.resposta==="pendente") return f;
+                  mudou=true;
+                  if(p.resposta==="confirmado"){ setTimeout(()=>fireToast(`✅ ${f.nome.split(" ")[0]} confirmou!`),0); tocarSom("confirmado"); }
+                  return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
+                });
               });
+              if(!mudou) return j;
+              const conf=novaFila.filter(x=>x.status==="confirmado");
+              if(conf.length===4&&j.status==="ativo"){
+                const{sc,d1,d2}=melhorDuplas(conf);
+                tocarSom("fechado");
+                return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
+              }
+              return{...j,fila:novaFila};
+            }));
+          }catch(e){}
+        }
+      },15000);
+      return()=>clearInterval(interval);
+    }
+
+    // Realtime: escuta mudancas em participacoes
+    const channel = client
+      .channel("profit1-sync")
+      .on("postgres_changes",
+        {event:"UPDATE", schema:"public", table:"participacoes"},
+        (payload)=>{
+          const p = payload.new;
+          if(!p||p.resposta==="pendente") return;
+          setJogosAtivos(prev=>prev.map(jg=>{
+            if(jg.dbId!==p.jogo_id) return jg;
+            let mudou=false;
+            const novaFila=jg.fila.map(f=>{
+              if(f.id!==p.jogador_id||f.status===p.resposta) return f;
+              mudou=true;
+              if(p.resposta==="confirmado"){ setTimeout(()=>fireToast(`✅ ${f.nome.split(" ")[0]} confirmou!`),0); tocarSom("confirmado"); }
+              if(p.resposta==="recusou") setTimeout(()=>fireToast(`❌ ${f.nome.split(" ")[0]} recusou`),0);
+              return{...f,status:p.resposta,respostaEm:"via WhatsApp"};
             });
-            if(!mudou) return j;
+            if(!mudou) return jg;
             const conf=novaFila.filter(x=>x.status==="confirmado");
-            if(conf.length===4&&j.status==="ativo"){
+            if(conf.length===4&&jg.status==="ativo"){
               const{sc,d1,d2}=melhorDuplas(conf);
               tocarSom("fechado");
-              setTimeout(()=>fireToast(`[P] Jogo ${j.slot.hora} · ${j.slot.quadra} fechado!`),0);
-              return{...j,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
+              setTimeout(()=>fireToast(`🎾 Jogo ${jg.slot.hora} · ${jg.slot.quadra} fechado!`),0);
+              return{...jg,fila:novaFila,status:"fechado",dupla1:d1,dupla2:d2,scoreEquilibrio:sc};
             }
-            return{...j,fila:novaFila,dbId:jogoDbId};
+            return{...jg,fila:novaFila};
           }));
-        }catch(e){ console.log("polling error:",e); }
-      }
-    },30000);
-    return()=>clearInterval(interval);
-  },[jogosAtivos]);
+        }
+      )
+      .on("postgres_changes",
+        {event:"UPDATE", schema:"public", table:"jogos"},
+        (payload)=>{
+          const jg = payload.new;
+          if(!jg) return;
+          if(jg.status==="fechado"){
+            setJogosAtivos(prev=>prev.map(j=>j.dbId===jg.id?{...j,status:"fechado"}:j));
+          }
+          if(jg.status==="cancelado"){
+            setJogosAtivos(prev=>prev.filter(j=>j.dbId!==jg.id));
+          }
+        }
+      )
+      .subscribe((status)=>{
+        console.log("Realtime status:", status);
+        if(status==="SUBSCRIBED") fireToast("🔄 Sincronização em tempo real ativa");
+      });
+
+    return()=>{ client.removeChannel(channel); };
+  },[]);
 
   useEffect(()=>{
     setLoadingJogadores(true);
