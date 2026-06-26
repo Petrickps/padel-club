@@ -1348,6 +1348,7 @@ export default function App(){
   const [toast,setToast]=useState(null);
   // FIX: remetente comeca em branco
   const [remetente,setRemetente]=useState("");
+  const [modoTeste,setModoTeste]=useState(false);
   const timersRef=useRef({});
   const remetenteRef=useRef(remetente);
   const jogosAtivosRef=useRef(jogosAtivos);
@@ -1355,6 +1356,9 @@ export default function App(){
   useEffect(()=>{ jogosAtivosRef.current=jogosAtivos; },[jogosAtivos]);
 
   const fireToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
+  const jogadoresFiltrados=modoTeste
+    ?jogadores.filter(j=>j.nome.startsWith("TESTE"))
+    :jogadores.filter(j=>!j.nome.startsWith("TESTE"));
 
   useEffect(()=>{
     window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();window._pwaPrompt=e;});
@@ -1874,17 +1878,28 @@ export default function App(){
               + Novo Jogo
             </button>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:8,
-            background:"#fff",border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px"}}>
-            <span style={{fontSize:11,color:C.textMut,fontWeight:600,whiteSpace:"nowrap"}}>Enviado por:</span>
-            <input value={remetente} onChange={e=>setRemetente(e.target.value)}
-              style={{background:"transparent",border:"none",fontSize:13,color:C.text,
-                fontFamily:"inherit",outline:"none",flex:1,minWidth:0}}
-              placeholder="Seu nome"/>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <div style={{flex:1,display:"flex",alignItems:"center",gap:8,
+              background:"#fff",border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px"}}>
+              <span style={{fontSize:11,color:C.textMut,fontWeight:600,whiteSpace:"nowrap"}}>Enviado por:</span>
+              <input value={remetente} onChange={e=>setRemetente(e.target.value)}
+                style={{background:"transparent",border:"none",fontSize:13,color:C.text,
+                  fontFamily:"inherit",outline:"none",flex:1,minWidth:0}}
+                placeholder="Seu nome"/>
+            </div>
+            <button onClick={()=>setModoTeste(m=>!m)} style={{
+              background:modoTeste?"#FEF3C7":"#fff",
+              border:`1.5px solid ${modoTeste?"#F59E0B":C.border}`,
+              borderRadius:10,padding:"8px 14px",cursor:"pointer",
+              fontFamily:"inherit",fontWeight:700,fontSize:12,
+              color:modoTeste?"#92400E":C.textMut,whiteSpace:"nowrap",
+              transition:"all .2s"}}>
+              {modoTeste?"MODO TESTE ATIVO":"Modo Teste"}
+            </button>
           </div>
         </div>
 
-        {mostrarForm&&<FormNovoJogo jogadores={jogadores} metricas={metricas} remetente={remetente}
+        {mostrarForm&&<FormNovoJogo jogadores={jogadoresFiltrados} metricas={metricas} remetente={remetente}
           onDispararCascata={dispararCascata} onCancelar={()=>setMostrarForm(false)}/>}
 
         {jogosVisiveis.length===0&&!mostrarForm&&<div style={{textAlign:"center",padding:"50px 0",color:C.textMut}}>
